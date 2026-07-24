@@ -1,0 +1,8 @@
+.git
+.github
+.agents
+.env
+.env.*
+storage
+tmp
+README_zh.md

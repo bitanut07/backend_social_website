@@ -1,0 +1,40 @@
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: ${DB_DATABASE:-artly_social}
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-artly_local}
+    volumes:
+      - artly_mysql_data:/var/lib/mysql
+      - ./sql.sql:/docker-entrypoint-initdb.d/001-artly.sql:ro
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - MYSQL_PWD=$$MYSQL_ROOT_PASSWORD mysqladmin ping -h 127.0.0.1 -uroot --silent
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  goravel:
+    build:
+      context: .
+    env_file:
+      - .env
+    environment:
+      APP_HOST: 0.0.0.0
+      APP_PORT: 3000
+      DB_CONNECTION: mysql
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_DATABASE: ${DB_DATABASE:-artly_social}
+      DB_USERNAME: root
+      DB_PASSWORD: ${DB_PASSWORD:-artly_local}
+    ports:
+      - "3000:3000"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  artly_mysql_data:

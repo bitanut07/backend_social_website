@@ -1,0 +1,1346 @@
+openapi: 3.1.0
+jsonSchemaDialect: https://json-schema.org/draft/2020-12/schema
+
+info:
+  title: Artly API
+  version: 1.0.0
+  summary: REST API cho mạng xã hội bài thi vẽ Artly
+  description: |
+    Hợp đồng API cho MVP Artly, nơi học sinh và giáo viên đăng bài thi vẽ,
+    thả reaction, nhắn tin trực tiếp và hỏi trợ lý thống kê bài viết theo chủ đề.
+
+    Các endpoint được bảo vệ sử dụng header `X-User-ID` để chọn một tài khoản
+    mẫu. Đây chỉ là cơ chế danh tính của bản demo, **không phải xác thực dùng cho
+    production**.
+
+    Mọi thuộc tính JSON dùng camelCase. Mọi phản hồi lỗi đều có cùng cấu trúc:
+    `{ "error": { "code", "message", "details" } }`.
+
+servers:
+  - url: http://localhost:3000
+    description: Goravel chạy trên máy local
+
+tags:
+  - name: Hệ thống
+    description: Kiểm tra trạng thái dịch vụ.
+  - name: Người dùng
+    description: Danh sách tài khoản mẫu của học sinh và giáo viên.
+  - name: Chủ đề
+    description: Danh mục chủ đề vẽ và các cách gọi tương đương.
+  - name: Bài viết
+    description: Bảng tin bài thi vẽ và reaction.
+  - name: Tin nhắn
+    description: Tin nhắn trực tiếp giữa các tài khoản mẫu.
+  - name: Trợ lý
+    description: Trợ lý thống kê số bài viết theo chủ đề.
+
+paths:
+  /api/v1/health:
+    get:
+      tags:
+        - Hệ thống
+      summary: Kiểm tra trạng thái API
+      operationId: getHealth
+      security: []
+      responses:
+        "200":
+          description: Dịch vụ đang hoạt động.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+              examples:
+                healthy:
+                  summary: API sẵn sàng
+                  value:
+                    status: OK
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/v1/users:
+    get:
+      tags:
+        - Người dùng
+      summary: Lấy danh sách tài khoản mẫu
+      description: |
+        Trả về tài khoản theo thứ tự tăng dần của ID. Endpoint này không yêu cầu
+        `X-User-ID` để người dùng có thể chọn tài khoản demo.
+      operationId: listUsers
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/DirectoryPageSize"
+      responses:
+        "200":
+          description: Danh sách tài khoản mẫu và thông tin phân trang.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserListResponse"
+              examples:
+                firstPage:
+                  summary: Học sinh và giáo viên mẫu
+                  value:
+                    data:
+                      - id: 1
+                        username: linh.ve
+                        displayName: Nguyễn Gia Linh
+                        role: STUDENT
+                        avatarUrl: https://images.example.com/avatars/linh.jpg
+                      - id: 2
+                        username: co.mai
+                        displayName: Cô Mai Anh
+                        role: TEACHER
+                        avatarUrl: https://images.example.com/avatars/mai.jpg
+                    pagination:
+                      page: 1
+                      pageSize: 20
+                      totalItems: 2
+                      totalPages: 1
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/v1/topics:
+    get:
+      tags:
+        - Chủ đề
+      summary: Lấy danh sách chủ đề
+      description: |
+        Trả về các chủ đề chuẩn hóa. Mảng `aliases` giúp giao diện hiển thị những
+        cách gọi tương đương mà trợ lý có thể nhận diện.
+      operationId: listTopics
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/DirectoryPageSize"
+      responses:
+        "200":
+          description: Danh sách chủ đề và thông tin phân trang.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TopicListResponse"
+              examples:
+                drawingTopics:
+                  summary: Một số chủ đề vẽ
+                  value:
+                    data:
+                      - id: 1
+                        slug: chan-dung
+                        name: Chân dung
+                        aliases:
+                          - vẽ người
+                          - portrait
+                      - id: 2
+                        slug: phong-canh
+                        name: Phong cảnh
+                        aliases:
+                          - cảnh vật
+                          - landscape
+                    pagination:
+                      page: 1
+                      pageSize: 20
+                      totalItems: 2
+                      totalPages: 1
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/v1/posts:
+    get:
+      tags:
+        - Bài viết
+      summary: Lấy bảng tin bài thi vẽ
+      description: |
+        Trả về bài viết mới nhất trước. Khi có `topicId`, chỉ những bài được gắn
+        chủ đề tương ứng mới được trả về. `viewerHasReacted` được tính theo tài
+        khoản mẫu trong header `X-User-ID`.
+      operationId: listPosts
+      security:
+        - DemoUserId: []
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PostPageSize"
+        - $ref: "#/components/parameters/TopicId"
+      responses:
+        "200":
+          description: Bảng tin và thông tin phân trang.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PostListResponse"
+              examples:
+                landscapeFeed:
+                  summary: Bảng tin chủ đề phong cảnh
+                  value:
+                    data:
+                      - id: 18
+                        title: Buổi sáng trên cánh đồng
+                        caption: Bài dự thi em vẽ bằng màu nước trong 90 phút.
+                        imageUrl: https://images.example.com/art/canh-dong.jpg
+                        examName: Sắc màu quê hương 2026
+                        author:
+                          id: 1
+                          username: linh.ve
+                          displayName: Nguyễn Gia Linh
+                          role: STUDENT
+                          avatarUrl: https://images.example.com/avatars/linh.jpg
+                        topics:
+                          - id: 2
+                            slug: phong-canh
+                            name: Phong cảnh
+                            aliases:
+                              - cảnh vật
+                              - landscape
+                        reactionCount: 12
+                        viewerHasReacted: true
+                        createdAt: "2026-07-24T08:30:00+07:00"
+                    pagination:
+                      page: 1
+                      pageSize: 10
+                      totalItems: 1
+                      totalPages: 1
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/DemoIdentityRequired"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/RequestTimeout"
+
+    post:
+      tags:
+        - Bài viết
+      summary: Đăng một bài thi vẽ
+      description: |
+        Tạo bài viết cho tài khoản mẫu trong `X-User-ID`. MVP chỉ nhận URL ảnh;
+        endpoint này không nhận file upload.
+      operationId: createPost
+      security:
+        - DemoUserId: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePostRequest"
+            examples:
+              watercolorEntry:
+                summary: Bài dự thi màu nước
+                value:
+                  title: Buổi sáng trên cánh đồng
+                  caption: Bài dự thi em vẽ bằng màu nước trong 90 phút.
+                  imageUrl: https://images.example.com/art/canh-dong.jpg
+                  examName: Sắc màu quê hương 2026
+                  topicIds:
+                    - 2
+      responses:
+        "201":
+          description: Đã tạo bài viết.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PostResponse"
+              examples:
+                created:
+                  summary: Bài viết vừa tạo
+                  value:
+                    data:
+                      id: 18
+                      title: Buổi sáng trên cánh đồng
+                      caption: Bài dự thi em vẽ bằng màu nước trong 90 phút.
+                      imageUrl: https://images.example.com/art/canh-dong.jpg
+                      examName: Sắc màu quê hương 2026
+                      author:
+                        id: 1
+                        username: linh.ve
+                        displayName: Nguyễn Gia Linh
+                        role: STUDENT
+                        avatarUrl: https://images.example.com/avatars/linh.jpg
+                      topics:
+                        - id: 2
+                          slug: phong-canh
+                          name: Phong cảnh
+                          aliases:
+                            - cảnh vật
+                            - landscape
+                      reactionCount: 0
+                      viewerHasReacted: false
+                      createdAt: "2026-07-24T08:30:00+07:00"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/DemoIdentityRequired"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/RequestTimeout"
+
+  /api/v1/posts/{id}/reaction:
+    parameters:
+      - $ref: "#/components/parameters/PostId"
+
+    put:
+      tags:
+        - Bài viết
+      summary: Thả reaction cho bài viết
+      description: |
+        Thêm reaction của tài khoản mẫu vào bài viết. Thao tác có tính
+        idempotent: gọi lại nhiều lần vẫn chỉ tạo một reaction cho cặp bài
+        viết-người dùng.
+      operationId: putPostReaction
+      security:
+        - DemoUserId: []
+      responses:
+        "200":
+          description: Trạng thái reaction hiện tại của bài viết.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReactionResponse"
+              examples:
+                reacted:
+                  summary: Đã thả tim
+                  value:
+                    data:
+                      reactionCount: 13
+                      viewerHasReacted: true
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/DemoIdentityRequired"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+    delete:
+      tags:
+        - Bài viết
+      summary: Gỡ reaction khỏi bài viết
+      description: |
+        Gỡ reaction của tài khoản mẫu khỏi bài viết. Thao tác có tính
+        idempotent: nếu reaction không tồn tại, API vẫn trả trạng thái thành công.
+      operationId: deletePostReaction
+      security:
+        - DemoUserId: []
+      responses:
+        "200":
+          description: Trạng thái reaction hiện tại của bài viết.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReactionResponse"
+              examples:
+                removed:
+                  summary: Đã gỡ tim
+                  value:
+                    data:
+                      reactionCount: 12
+                      viewerHasReacted: false
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/DemoIdentityRequired"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+  /api/v1/messages:
+    get:
+      tags:
+        - Tin nhắn
+      summary: Lấy cuộc trò chuyện với một người dùng
+      description: |
+        Trả về tin nhắn giữa tài khoản trong `X-User-ID` và `peerId`, mới nhất
+        trước để hỗ trợ REST polling. API chỉ trả những tin nhắn mà tài khoản
+        hiện tại là người gửi hoặc người nhận.
+      operationId: listMessages
+      security:
+        - DemoUserId: []
+      parameters:
+        - $ref: "#/components/parameters/PeerId"
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/MessagePageSize"
+      responses:
+        "200":
+          description: Các tin nhắn trong cuộc trò chuyện và thông tin phân trang.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageListResponse"
+              examples:
+                conversation:
+                  summary: Cuộc trò chuyện giữa học sinh và giáo viên
+                  value:
+                    data:
+                      - id: 35
+                        sender:
+                          id: 2
+                          username: co.mai
+                          displayName: Cô Mai Anh
+                          role: TEACHER
+                          avatarUrl: https://images.example.com/avatars/mai.jpg
+                        receiver:
+                          id: 1
+                          username: linh.ve
+                          displayName: Nguyễn Gia Linh
+                          role: STUDENT
+                          avatarUrl: https://images.example.com/avatars/linh.jpg
+                        body: Em thử tăng độ tương phản ở vùng tiền cảnh nhé.
+                        createdAt: "2026-07-24T09:10:00+07:00"
+                    pagination:
+                      page: 1
+                      pageSize: 50
+                      totalItems: 1
+                      totalPages: 1
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/DemoIdentityRequired"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+
+    post:
+      tags:
+        - Tin nhắn
+      summary: Gửi tin nhắn trực tiếp
+      description: |
+        Gửi tin nhắn từ tài khoản trong `X-User-ID` đến một tài khoản mẫu khác.
+      operationId: createMessage
+      security:
+        - DemoUserId: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateMessageRequest"
+            examples:
+              feedbackQuestion:
+                summary: Học sinh hỏi nhận xét
+                value:
+                  recipientId: 2
+                  body: Cô xem giúp em phần phối màu của bài này với ạ.
+      responses:
+        "201":
+          description: Đã gửi tin nhắn.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+              examples:
+                sent:
+                  summary: Tin nhắn vừa gửi
+                  value:
+                    data:
+                      id: 36
+                      sender:
+                        id: 1
+                        username: linh.ve
+                        displayName: Nguyễn Gia Linh
+                        role: STUDENT
+                        avatarUrl: https://images.example.com/avatars/linh.jpg
+                      receiver:
+                        id: 2
+                        username: co.mai
+                        displayName: Cô Mai Anh
+                        role: TEACHER
+                        avatarUrl: https://images.example.com/avatars/mai.jpg
+                      body: Cô xem giúp em phần phối màu của bài này với ạ.
+                      createdAt: "2026-07-24T09:12:00+07:00"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/DemoIdentityRequired"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/RequestTimeout"
+
+  /api/v1/assistant/questions:
+    post:
+      tags:
+        - Trợ lý
+      summary: Hỏi số lượng bài viết theo chủ đề
+      description: |
+        Nhận câu hỏi tiếng Việt, nhận diện ý định đếm bài và ánh xạ cụm chủ đề
+        vào danh mục cho phép. Trợ lý không sinh hoặc thực thi SQL.
+
+        `provider` cho biết bộ trích xuất đã được dùng. Nếu adapter OpenAI không
+        khả dụng hoặc gặp lỗi, backend tự động dùng parser `LOCAL`. Câu hỏi chưa
+        rõ vẫn trả HTTP 200 với `status=NEEDS_CLARIFICATION`.
+      operationId: askAssistant
+      security:
+        - DemoUserId: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AssistantQuestionRequest"
+            examples:
+              countLandscape:
+                summary: Đếm bài phong cảnh
+                value:
+                  question: Có bao nhiêu bài nói về chủ đề phong cảnh?
+      responses:
+        "200":
+          description: Câu trả lời hoặc yêu cầu người dùng làm rõ câu hỏi.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AssistantResponse"
+              examples:
+                answered:
+                  summary: Đã thống kê được chủ đề
+                  value:
+                    status: ANSWERED
+                    intent: COUNT_POSTS_BY_TOPIC
+                    answer: Hiện có 8 bài viết về chủ đề “Phong cảnh”.
+                    provider: LOCAL
+                    result:
+                      count: 8
+                      topic:
+                        id: 2
+                        slug: phong-canh
+                        name: Phong cảnh
+                        aliases:
+                          - cảnh vật
+                          - landscape
+                needsClarification:
+                  summary: Chưa xác định được chủ đề
+                  value:
+                    status: NEEDS_CLARIFICATION
+                    intent: UNKNOWN
+                    answer: Bạn muốn đếm bài viết về chủ đề nào?
+                    provider: LOCAL
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/DemoIdentityRequired"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+        "503":
+          $ref: "#/components/responses/RequestTimeout"
+
+components:
+  securitySchemes:
+    DemoUserId:
+      type: apiKey
+      in: header
+      name: X-User-ID
+      description: |
+        ID số nguyên dương của một tài khoản mẫu trong bảng `users`. Đây là cơ
+        chế chọn danh tính cho MVP, không phải API key hoặc auth production.
+
+  parameters:
+    Page:
+      name: page
+      in: query
+      required: false
+      description: Số trang, bắt đầu từ 1.
+      schema:
+        type: integer
+        format: int32
+        minimum: 1
+        maximum: 100000
+        default: 1
+      example: 1
+
+    DirectoryPageSize:
+      name: pageSize
+      in: query
+      required: false
+      description: Số người dùng hoặc chủ đề trên mỗi trang.
+      schema:
+        type: integer
+        format: int32
+        minimum: 1
+        maximum: 100
+        default: 20
+      example: 20
+
+    PostPageSize:
+      name: pageSize
+      in: query
+      required: false
+      description: Số bài viết trên mỗi trang.
+      schema:
+        type: integer
+        format: int32
+        minimum: 1
+        maximum: 50
+        default: 10
+      example: 10
+
+    MessagePageSize:
+      name: pageSize
+      in: query
+      required: false
+      description: Số tin nhắn trên mỗi trang.
+      schema:
+        type: integer
+        format: int32
+        minimum: 1
+        maximum: 100
+        default: 50
+      example: 50
+
+    TopicId:
+      name: topicId
+      in: query
+      required: false
+      description: ID chủ đề dùng để lọc bảng tin.
+      schema:
+        $ref: "#/components/schemas/ResourceId"
+      example: 2
+
+    PeerId:
+      name: peerId
+      in: query
+      required: true
+      description: ID tài khoản mẫu còn lại trong cuộc trò chuyện.
+      schema:
+        $ref: "#/components/schemas/ResourceId"
+      example: 2
+
+    PostId:
+      name: id
+      in: path
+      required: true
+      description: ID bài viết.
+      schema:
+        $ref: "#/components/schemas/ResourceId"
+      example: 18
+
+  schemas:
+    ResourceId:
+      type: integer
+      format: int64
+      minimum: 1
+      description: ID số nguyên dương do MySQL sinh.
+      examples:
+        - 1
+
+    HealthResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          enum:
+            - OK
+          description: Trạng thái sẵn sàng của API.
+
+    Pagination:
+      type: object
+      additionalProperties: false
+      required:
+        - page
+        - pageSize
+        - totalItems
+        - totalPages
+      properties:
+        page:
+          type: integer
+          format: int32
+          minimum: 1
+          description: Trang hiện tại.
+          examples:
+            - 1
+        pageSize:
+          type: integer
+          format: int32
+          minimum: 1
+          description: Số phần tử tối đa trong một trang.
+          examples:
+            - 10
+        totalItems:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Tổng số phần tử thỏa điều kiện.
+          examples:
+            - 21
+        totalPages:
+          type: integer
+          format: int32
+          minimum: 0
+          description: |
+            Tổng số trang. Bằng 0 khi không có phần tử nào thỏa điều kiện.
+          examples:
+            - 3
+
+    UserRole:
+      type: string
+      enum:
+        - STUDENT
+        - TEACHER
+      description: Vai trò của tài khoản mẫu.
+
+    User:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - username
+        - displayName
+        - role
+      properties:
+        id:
+          $ref: "#/components/schemas/ResourceId"
+        username:
+          type: string
+          minLength: 3
+          maxLength: 50
+          pattern: "^[a-z0-9._-]+$"
+          description: Tên tài khoản duy nhất.
+          examples:
+            - linh.ve
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Tên hiển thị.
+          examples:
+            - Nguyễn Gia Linh
+        role:
+          $ref: "#/components/schemas/UserRole"
+        avatarUrl:
+          type:
+            - string
+            - "null"
+          format: uri
+          maxLength: 2048
+          description: URL ảnh đại diện; có thể là null nếu chưa đặt.
+          examples:
+            - https://images.example.com/avatars/linh.jpg
+
+    UserListResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - data
+        - pagination
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/User"
+        pagination:
+          $ref: "#/components/schemas/Pagination"
+
+    Topic:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - slug
+        - name
+      properties:
+        id:
+          $ref: "#/components/schemas/ResourceId"
+        slug:
+          type: string
+          minLength: 1
+          maxLength: 100
+          pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+          description: Định danh URL không dấu của chủ đề.
+          examples:
+            - phong-canh
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Tên chuẩn bằng tiếng Việt.
+          examples:
+            - Phong cảnh
+        aliases:
+          type: array
+          description: Các cụm từ tương đương mà trợ lý có thể nhận diện.
+          uniqueItems: true
+          items:
+            type: string
+            minLength: 1
+            maxLength: 100
+          examples:
+            - - cảnh vật
+              - landscape
+
+    TopicListResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - data
+        - pagination
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Topic"
+        pagination:
+          $ref: "#/components/schemas/Pagination"
+
+    Post:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - title
+        - caption
+        - imageUrl
+        - author
+        - topics
+        - reactionCount
+        - viewerHasReacted
+        - createdAt
+      properties:
+        id:
+          $ref: "#/components/schemas/ResourceId"
+        title:
+          type: string
+          minLength: 1
+          maxLength: 120
+          description: Tiêu đề bài thi vẽ.
+          examples:
+            - Buổi sáng trên cánh đồng
+        caption:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          description: Phần mô tả do người đăng nhập.
+          examples:
+            - Bài dự thi em vẽ bằng màu nước trong 90 phút.
+        imageUrl:
+          type: string
+          format: uri
+          maxLength: 2048
+          description: URL ảnh bài vẽ; MVP chưa hỗ trợ upload file.
+          examples:
+            - https://images.example.com/art/canh-dong.jpg
+        examName:
+          type: string
+          minLength: 1
+          maxLength: 160
+          description: Tên cuộc thi hoặc bài kiểm tra, nếu có.
+          examples:
+            - Sắc màu quê hương 2026
+        author:
+          $ref: "#/components/schemas/User"
+        topics:
+          type: array
+          minItems: 1
+          maxItems: 5
+          uniqueItems: true
+          items:
+            $ref: "#/components/schemas/Topic"
+        reactionCount:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Tổng số tài khoản đã reaction bài viết.
+          examples:
+            - 12
+        viewerHasReacted:
+          type: boolean
+          description: Tài khoản trong `X-User-ID` đã reaction hay chưa.
+          examples:
+            - true
+        createdAt:
+          type: string
+          format: date-time
+          description: Thời điểm tạo theo RFC 3339.
+          examples:
+            - "2026-07-24T08:30:00+07:00"
+
+    CreatePostRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - title
+        - caption
+        - imageUrl
+        - topicIds
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 120
+          description: Tiêu đề sau khi đã loại bỏ khoảng trắng đầu và cuối.
+        caption:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          description: Mô tả sau khi đã loại bỏ khoảng trắng đầu và cuối.
+        imageUrl:
+          type: string
+          format: uri
+          maxLength: 2048
+          description: URL tuyệt đối dùng giao thức HTTP hoặc HTTPS.
+        examName:
+          type: string
+          minLength: 1
+          maxLength: 160
+          description: Tên cuộc thi hoặc bài kiểm tra, nếu có.
+        topicIds:
+          type: array
+          minItems: 1
+          maxItems: 5
+          uniqueItems: true
+          description: Từ một đến năm ID chủ đề đã tồn tại.
+          items:
+            $ref: "#/components/schemas/ResourceId"
+
+    PostResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - data
+      properties:
+        data:
+          $ref: "#/components/schemas/Post"
+
+    PostListResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - data
+        - pagination
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Post"
+        pagination:
+          $ref: "#/components/schemas/Pagination"
+
+    ReactionState:
+      type: object
+      additionalProperties: false
+      required:
+        - reactionCount
+        - viewerHasReacted
+      properties:
+        reactionCount:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Tổng số reaction sau thao tác.
+          examples:
+            - 13
+        viewerHasReacted:
+          type: boolean
+          description: Trạng thái reaction của tài khoản hiện tại sau thao tác.
+          examples:
+            - true
+
+    ReactionResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - data
+      properties:
+        data:
+          $ref: "#/components/schemas/ReactionState"
+
+    Message:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - sender
+        - receiver
+        - body
+        - createdAt
+      properties:
+        id:
+          $ref: "#/components/schemas/ResourceId"
+        sender:
+          $ref: "#/components/schemas/User"
+        receiver:
+          $ref: "#/components/schemas/User"
+        body:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          description: Nội dung thuần văn bản; frontend không render dưới dạng HTML.
+          examples:
+            - Em thử tăng độ tương phản ở vùng tiền cảnh nhé.
+        createdAt:
+          type: string
+          format: date-time
+          description: Thời điểm gửi theo RFC 3339.
+          examples:
+            - "2026-07-24T09:10:00+07:00"
+
+    CreateMessageRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - recipientId
+        - body
+      properties:
+        recipientId:
+          $ref: "#/components/schemas/ResourceId"
+        body:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          description: Nội dung thuần văn bản sau khi bỏ khoảng trắng hai đầu.
+
+    MessageResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - data
+      properties:
+        data:
+          $ref: "#/components/schemas/Message"
+
+    MessageListResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - data
+        - pagination
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/Message"
+        pagination:
+          $ref: "#/components/schemas/Pagination"
+
+    AssistantStatus:
+      type: string
+      enum:
+        - ANSWERED
+        - NEEDS_CLARIFICATION
+      description: Kết quả xử lý câu hỏi.
+
+    AssistantIntent:
+      type: string
+      enum:
+        - COUNT_POSTS_BY_TOPIC
+        - UNKNOWN
+      description: Ý định an toàn mà parser nhận diện được.
+
+    AssistantProvider:
+      type: string
+      enum:
+        - LOCAL
+        - OPENAI
+      description: Bộ trích xuất cụm chủ đề thực tế đã được dùng.
+
+    AssistantQuestionRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - question
+      properties:
+        question:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: |
+            Câu hỏi thuần văn bản. Backend chỉ nhận diện ý định và cụm chủ đề,
+            không thực thi chỉ dẫn, SQL hoặc HTML có trong nội dung này.
+          examples:
+            - Có bao nhiêu bài nói về chủ đề phong cảnh?
+
+    AssistantCountResult:
+      type: object
+      additionalProperties: false
+      required:
+        - count
+        - topic
+      properties:
+        count:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Số bài viết khác nhau được gắn chủ đề.
+          examples:
+            - 8
+        topic:
+          $ref: "#/components/schemas/Topic"
+
+    AssistantResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - status
+        - intent
+        - answer
+        - provider
+      properties:
+        status:
+          $ref: "#/components/schemas/AssistantStatus"
+        intent:
+          $ref: "#/components/schemas/AssistantIntent"
+        answer:
+          type: string
+          minLength: 1
+          maxLength: 1000
+          description: Câu trả lời tiếng Việt dạng thuần văn bản.
+          examples:
+            - Hiện có 8 bài viết về chủ đề “Phong cảnh”.
+        provider:
+          $ref: "#/components/schemas/AssistantProvider"
+        result:
+          $ref: "#/components/schemas/AssistantCountResult"
+
+    ErrorResponse:
+      type: object
+      additionalProperties: false
+      required:
+        - error
+      properties:
+        error:
+          $ref: "#/components/schemas/Error"
+
+    Error:
+      type: object
+      additionalProperties: false
+      required:
+        - code
+        - message
+        - details
+      properties:
+        code:
+          type: string
+          minLength: 1
+          maxLength: 100
+          pattern: "^[A-Z][A-Z0-9_]*$"
+          description: Mã lỗi ổn định để frontend xử lý bằng máy.
+          examples:
+            - VALIDATION_ERROR
+        message:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: Thông báo an toàn bằng tiếng Việt, không chứa stack trace.
+          examples:
+            - Dữ liệu không hợp lệ
+        details:
+          description: |
+            Chi tiết có cấu trúc giúp sửa request. Có thể là object rỗng nếu
+            không có thông tin bổ sung và không bao giờ chứa secret hay stack trace.
+          examples:
+            - fields:
+                caption:
+                  - Nội dung mô tả là bắt buộc.
+
+  responses:
+    BadRequest:
+      description: Request không đọc được hoặc tham số sai định dạng.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            malformedRequest:
+              summary: JSON không hợp lệ
+              value:
+                error:
+                  code: BAD_REQUEST
+                  message: Không thể đọc dữ liệu gửi lên
+                  details: {}
+
+    DemoIdentityRequired:
+      description: Thiếu `X-User-ID` hoặc tài khoản mẫu không tồn tại.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            missingIdentity:
+              summary: Chưa chọn tài khoản mẫu
+              value:
+                error:
+                  code: DEMO_USER_REQUIRED
+                  message: Vui lòng chọn một tài khoản mẫu
+                  details:
+                    header: X-User-ID
+
+    Forbidden:
+      description: Tài khoản mẫu không được phép truy cập tài nguyên.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            forbidden:
+              summary: Không có quyền truy cập
+              value:
+                error:
+                  code: FORBIDDEN
+                  message: Bạn không có quyền truy cập tài nguyên này
+                  details: {}
+
+    NotFound:
+      description: Tài nguyên được yêu cầu không tồn tại.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            notFound:
+              summary: Không tìm thấy tài nguyên
+              value:
+                error:
+                  code: NOT_FOUND
+                  message: Không tìm thấy tài nguyên
+                  details: {}
+
+    ValidationError:
+      description: Dữ liệu có đúng định dạng JSON nhưng không đạt điều kiện.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            invalidFields:
+              summary: Một trường không hợp lệ
+              value:
+                error:
+                  code: VALIDATION_ERROR
+                  message: Dữ liệu không hợp lệ
+                  details:
+                    fields:
+                      caption:
+                        - Nội dung mô tả là bắt buộc.
+
+    Conflict:
+      description: Request xung đột với trạng thái dữ liệu hiện tại.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            conflict:
+              summary: Dữ liệu bị xung đột
+              value:
+                error:
+                  code: CONFLICT
+                  message: Dữ liệu đã thay đổi, vui lòng thử lại
+                  details: {}
+
+    TooManyRequests:
+      description: Người dùng gửi quá nhiều request trong một khoảng thời gian.
+      headers:
+        Retry-After:
+          description: Số giây nên chờ trước khi thử lại.
+          schema:
+            type: integer
+            minimum: 1
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            rateLimited:
+              summary: Vượt giới hạn request
+              value:
+                error:
+                  code: RATE_LIMITED
+                  message: Bạn đang gửi yêu cầu quá nhanh, vui lòng thử lại sau
+                  details:
+                    retryAfterSeconds: "30"
+
+    PayloadTooLarge:
+      description: Body của request vượt quá giới hạn 64 KiB.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            payloadTooLarge:
+              summary: Body vượt giới hạn
+              value:
+                error:
+                  code: PAYLOAD_TOO_LARGE
+                  message: Dữ liệu gửi lên vượt quá giới hạn cho phép
+                  details: {}
+
+    RequestTimeout:
+      description: Request không hoàn tất trong thời gian xử lý cho phép.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            requestTimeout:
+              summary: Request hết thời gian
+              value:
+                error:
+                  code: REQUEST_TIMEOUT
+                  message: Yêu cầu xử lý quá lâu, vui lòng thử lại
+                  details: {}
+
+    InternalServerError:
+      description: Lỗi nội bộ đã được che giấu thông tin nhạy cảm.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            internalError:
+              summary: Lỗi máy chủ
+              value:
+                error:
+                  code: INTERNAL_ERROR
+                  message: Hệ thống đang gặp sự cố, vui lòng thử lại sau
+                  details: {}
