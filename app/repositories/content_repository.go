@@ -15,6 +15,16 @@ var ErrNotFound = errors.New("không tìm thấy tài nguyên")
 
 var errReactionStateNotPersisted = errors.New("không thể lưu trạng thái reaction")
 
+const insertPostReturningIDSQL = `INSERT INTO posts (
+	user_id,
+	title,
+	caption,
+	image_url,
+	exam_name,
+	status
+) VALUES ($1, $2, $3, $4, $5, $6)
+RETURNING id`
+
 type User struct {
 	ID          int64   `json:"id"`
 	Username    string  `json:"username"`
@@ -224,14 +234,7 @@ func (r *GoravelContentRepository) CreatePost(
 	var created Post
 
 	err := r.database.WithContext(ctx).Transaction(func(tx db.Tx) error {
-		postID, err := tx.Table("posts").InsertGetID(map[string]any{
-			"user_id":   userID,
-			"title":     input.Title,
-			"caption":   input.Caption,
-			"image_url": input.ImageURL,
-			"exam_name": input.ExamName,
-			"status":    models.PostStatusPublished,
-		})
+		postID, err := insertPostReturningID(tx, userID, input)
 		if err != nil {
 			return err
 		}
@@ -255,6 +258,25 @@ func (r *GoravelContentRepository) CreatePost(
 	}
 
 	return created, nil
+}
+
+func insertPostReturningID(source db.Tx, userID int64, input CreatePostInput) (int64, error) {
+	row := insertedPostIDRow{}
+	err := source.Select(
+		&row,
+		insertPostReturningIDSQL,
+		userID,
+		input.Title,
+		input.Caption,
+		input.ImageURL,
+		input.ExamName,
+		models.PostStatusPublished,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	return row.ID, nil
 }
 
 func (r *GoravelContentRepository) PutReaction(
@@ -345,6 +367,10 @@ type userRow struct {
 	DisplayName string  `db:"display_name"`
 	Role        string  `db:"role"`
 	AvatarURL   *string `db:"avatar_url"`
+}
+
+type insertedPostIDRow struct {
+	ID int64 `db:"id"`
 }
 
 func (r userRow) toUser() User {

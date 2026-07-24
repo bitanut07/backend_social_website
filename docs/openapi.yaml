@@ -668,7 +668,7 @@ components:
       type: integer
       format: int64
       minimum: 1
-      description: ID số nguyên dương do MySQL sinh.
+      description: ID số nguyên dương do PostgreSQL identity sinh.
       examples:
         - 1
 

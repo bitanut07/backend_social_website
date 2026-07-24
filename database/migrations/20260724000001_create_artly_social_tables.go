@@ -38,8 +38,11 @@ func (r *M20260724000001CreateArtlySocialTables) Up() error {
 	if err := createMessagesTable(); err != nil {
 		return err
 	}
+	if err := ensureCheckConstraints(); err != nil {
+		return err
+	}
 
-	return ensureCheckConstraints()
+	return ensureUpdatedAtTriggers()
 }
 
 // Down drops dependent tables before the tables they reference.
@@ -56,6 +59,10 @@ func (r *M20260724000001CreateArtlySocialTables) Down() error {
 		if err := facades.Schema().DropIfExists(table); err != nil {
 			return err
 		}
+	}
+
+	if err := facades.DB().Statement(`DROP FUNCTION IF EXISTS artly_set_updated_at()`); err != nil {
+		return fmt.Errorf("xóa function cập nhật updated_at: %w", err)
 	}
 
 	return nil
@@ -104,7 +111,7 @@ func createTopicAliasesTable() error {
 
 	return facades.Schema().Create("topic_aliases", func(table schema.Blueprint) {
 		table.ID()
-		table.UnsignedBigInteger("topic_id")
+		table.BigInteger("topic_id")
 		table.String("alias", 100)
 		table.String("normalized_alias", 100)
 		addTimestamps(table)
@@ -127,7 +134,7 @@ func createPostsTable() error {
 
 	return facades.Schema().Create("posts", func(table schema.Blueprint) {
 		table.ID()
-		table.UnsignedBigInteger("user_id")
+		table.BigInteger("user_id")
 		table.String("title", 120)
 		table.Text("caption")
 		table.String("image_url", 2048)
@@ -152,8 +159,8 @@ func createPostTopicsTable() error {
 	}
 
 	return facades.Schema().Create("post_topics", func(table schema.Blueprint) {
-		table.UnsignedBigInteger("post_id")
-		table.UnsignedBigInteger("topic_id")
+		table.BigInteger("post_id")
+		table.BigInteger("topic_id")
 		addTimestamps(table)
 
 		table.Primary("post_id", "topic_id")
@@ -180,8 +187,8 @@ func createReactionsTable() error {
 
 	return facades.Schema().Create("reactions", func(table schema.Blueprint) {
 		table.ID()
-		table.UnsignedBigInteger("post_id")
-		table.UnsignedBigInteger("user_id")
+		table.BigInteger("post_id")
+		table.BigInteger("user_id")
 		table.Enum("type", []any{"LIKE", "LOVE", "CLAP"}).Default("LIKE")
 		addTimestamps(table)
 
@@ -209,8 +216,8 @@ func createMessagesTable() error {
 
 	return facades.Schema().Create("messages", func(table schema.Blueprint) {
 		table.ID()
-		table.UnsignedBigInteger("sender_id")
-		table.UnsignedBigInteger("receiver_id")
+		table.BigInteger("sender_id")
+		table.BigInteger("receiver_id")
 		table.Text("body")
 		table.Boolean("is_read").Default(false)
 		addTimestamps(table)
@@ -237,8 +244,8 @@ func createMessagesTable() error {
 }
 
 func addTimestamps(table schema.Blueprint) {
-	table.DateTime("created_at", 3).UseCurrent()
-	table.DateTime("updated_at", 3).UseCurrent().UseCurrentOnUpdate()
+	table.TimestampTz("created_at", 3).UseCurrent()
+	table.TimestampTz("updated_at", 3).UseCurrent()
 }
 
 type checkConstraint struct {
@@ -248,74 +255,74 @@ type checkConstraint struct {
 }
 
 // ensureCheckConstraints fills the small gap in Blueprint: Goravel v1.18
-// does not expose a CHECK helper, so these static MySQL 8 statements are
+// does not expose a CHECK helper, so these static PostgreSQL statements are
 // guarded through information_schema to keep retries safe.
 func ensureCheckConstraints() error {
 	constraints := []checkConstraint{
 		{
 			table:     "users",
 			name:      "chk_users_username_format",
-			statement: "ALTER TABLE `users` ADD CONSTRAINT `chk_users_username_format` CHECK (`username` REGEXP '^[a-z0-9._-]{3,50}$')",
+			statement: `ALTER TABLE "users" ADD CONSTRAINT "chk_users_username_format" CHECK ("username" ~ '^[a-z0-9._-]{3,50}$')`,
 		},
 		{
 			table:     "users",
 			name:      "chk_users_display_name_length",
-			statement: "ALTER TABLE `users` ADD CONSTRAINT `chk_users_display_name_length` CHECK (CHAR_LENGTH(TRIM(`display_name`)) BETWEEN 1 AND 100)",
+			statement: `ALTER TABLE "users" ADD CONSTRAINT "chk_users_display_name_length" CHECK (CHAR_LENGTH(TRIM("display_name")) BETWEEN 1 AND 100)`,
 		},
 		{
 			table:     "users",
 			name:      "chk_users_avatar_url",
-			statement: "ALTER TABLE `users` ADD CONSTRAINT `chk_users_avatar_url` CHECK (`avatar_url` IS NULL OR `avatar_url` LIKE 'http://%' OR `avatar_url` LIKE 'https://%')",
+			statement: `ALTER TABLE "users" ADD CONSTRAINT "chk_users_avatar_url" CHECK ("avatar_url" IS NULL OR "avatar_url" LIKE 'http://%' OR "avatar_url" LIKE 'https://%')`,
 		},
 		{
 			table:     "topics",
 			name:      "chk_topics_name_length",
-			statement: "ALTER TABLE `topics` ADD CONSTRAINT `chk_topics_name_length` CHECK (CHAR_LENGTH(TRIM(`name`)) BETWEEN 1 AND 100)",
+			statement: `ALTER TABLE "topics" ADD CONSTRAINT "chk_topics_name_length" CHECK (CHAR_LENGTH(TRIM("name")) BETWEEN 1 AND 100)`,
 		},
 		{
 			table:     "topics",
 			name:      "chk_topics_normalized_name_length",
-			statement: "ALTER TABLE `topics` ADD CONSTRAINT `chk_topics_normalized_name_length` CHECK (CHAR_LENGTH(TRIM(`normalized_name`)) BETWEEN 1 AND 100)",
+			statement: `ALTER TABLE "topics" ADD CONSTRAINT "chk_topics_normalized_name_length" CHECK (CHAR_LENGTH(TRIM("normalized_name")) BETWEEN 1 AND 100)`,
 		},
 		{
 			table:     "topics",
 			name:      "chk_topics_slug_format",
-			statement: "ALTER TABLE `topics` ADD CONSTRAINT `chk_topics_slug_format` CHECK (`slug` REGEXP '^[a-z0-9]+(-[a-z0-9]+)*$')",
+			statement: `ALTER TABLE "topics" ADD CONSTRAINT "chk_topics_slug_format" CHECK ("slug" ~ '^[a-z0-9]+(-[a-z0-9]+)*$')`,
 		},
 		{
 			table:     "topic_aliases",
 			name:      "chk_topic_aliases_length",
-			statement: "ALTER TABLE `topic_aliases` ADD CONSTRAINT `chk_topic_aliases_length` CHECK (CHAR_LENGTH(TRIM(`alias`)) BETWEEN 1 AND 100 AND CHAR_LENGTH(TRIM(`normalized_alias`)) BETWEEN 1 AND 100)",
+			statement: `ALTER TABLE "topic_aliases" ADD CONSTRAINT "chk_topic_aliases_length" CHECK (CHAR_LENGTH(TRIM("alias")) BETWEEN 1 AND 100 AND CHAR_LENGTH(TRIM("normalized_alias")) BETWEEN 1 AND 100)`,
 		},
 		{
 			table:     "posts",
 			name:      "chk_posts_title_length",
-			statement: "ALTER TABLE `posts` ADD CONSTRAINT `chk_posts_title_length` CHECK (CHAR_LENGTH(TRIM(`title`)) BETWEEN 1 AND 120)",
+			statement: `ALTER TABLE "posts" ADD CONSTRAINT "chk_posts_title_length" CHECK (CHAR_LENGTH(TRIM("title")) BETWEEN 1 AND 120)`,
 		},
 		{
 			table:     "posts",
 			name:      "chk_posts_caption_length",
-			statement: "ALTER TABLE `posts` ADD CONSTRAINT `chk_posts_caption_length` CHECK (CHAR_LENGTH(TRIM(`caption`)) BETWEEN 1 AND 2000)",
+			statement: `ALTER TABLE "posts" ADD CONSTRAINT "chk_posts_caption_length" CHECK (CHAR_LENGTH(TRIM("caption")) BETWEEN 1 AND 2000)`,
 		},
 		{
 			table:     "posts",
 			name:      "chk_posts_image_url",
-			statement: "ALTER TABLE `posts` ADD CONSTRAINT `chk_posts_image_url` CHECK (`image_url` LIKE 'http://%' OR `image_url` LIKE 'https://%')",
+			statement: `ALTER TABLE "posts" ADD CONSTRAINT "chk_posts_image_url" CHECK ("image_url" LIKE 'http://%' OR "image_url" LIKE 'https://%')`,
 		},
 		{
 			table:     "posts",
 			name:      "chk_posts_exam_name_length",
-			statement: "ALTER TABLE `posts` ADD CONSTRAINT `chk_posts_exam_name_length` CHECK (`exam_name` IS NULL OR CHAR_LENGTH(TRIM(`exam_name`)) BETWEEN 1 AND 160)",
+			statement: `ALTER TABLE "posts" ADD CONSTRAINT "chk_posts_exam_name_length" CHECK ("exam_name" IS NULL OR CHAR_LENGTH(TRIM("exam_name")) BETWEEN 1 AND 160)`,
 		},
 		{
 			table:     "messages",
 			name:      "chk_messages_body_length",
-			statement: "ALTER TABLE `messages` ADD CONSTRAINT `chk_messages_body_length` CHECK (CHAR_LENGTH(TRIM(`body`)) BETWEEN 1 AND 2000)",
+			statement: `ALTER TABLE "messages" ADD CONSTRAINT "chk_messages_body_length" CHECK (CHAR_LENGTH(TRIM("body")) BETWEEN 1 AND 2000)`,
 		},
 		{
 			table:     "messages",
 			name:      "chk_messages_is_read",
-			statement: "ALTER TABLE `messages` ADD CONSTRAINT `chk_messages_is_read` CHECK (`is_read` IN (0, 1))",
+			statement: `ALTER TABLE "messages" ADD CONSTRAINT "chk_messages_is_read" CHECK ("is_read" IN (FALSE, TRUE))`,
 		},
 	}
 
@@ -335,6 +342,55 @@ func ensureCheckConstraints() error {
 	return nil
 }
 
+func ensureUpdatedAtTriggers() error {
+	const createFunctionStatement = `CREATE OR REPLACE FUNCTION artly_set_updated_at()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  NEW.updated_at := CURRENT_TIMESTAMP;
+  RETURN NEW;
+END;
+$$`
+
+	if err := facades.DB().Statement(createFunctionStatement); err != nil {
+		return fmt.Errorf("tạo hoặc cập nhật function cập nhật updated_at: %w", err)
+	}
+
+	for _, table := range []string{
+		"users",
+		"topics",
+		"topic_aliases",
+		"posts",
+		"post_topics",
+		"reactions",
+		"messages",
+	} {
+		trigger := table + "_set_updated_at"
+
+		if err := facades.DB().Statement(fmt.Sprintf(
+			`DROP TRIGGER IF EXISTS "%s" ON "%s"`,
+			trigger,
+			table,
+		)); err != nil {
+			return fmt.Errorf("xóa trigger %s: %w", trigger, err)
+		}
+
+		if err := facades.DB().Statement(fmt.Sprintf(
+			`CREATE TRIGGER "%s"
+BEFORE UPDATE ON "%s"
+FOR EACH ROW
+EXECUTE FUNCTION artly_set_updated_at()`,
+			trigger,
+			table,
+		)); err != nil {
+			return fmt.Errorf("tạo trigger %s: %w", trigger, err)
+		}
+	}
+
+	return nil
+}
+
 func checkConstraintExists(table, name string) (bool, error) {
 	var counts []struct {
 		Total int64 `db:"total"`
@@ -344,9 +400,9 @@ func checkConstraintExists(table, name string) (bool, error) {
 		&counts,
 		`SELECT COUNT(*) AS total
 		 FROM information_schema.table_constraints
-		 WHERE constraint_schema = DATABASE()
-		   AND table_name = ?
-		   AND constraint_name = ?
+		 WHERE constraint_schema = current_schema()
+		   AND table_name = $1
+		   AND constraint_name = $2
 		   AND constraint_type = 'CHECK'`,
 		table,
 		name,

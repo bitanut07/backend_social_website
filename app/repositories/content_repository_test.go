@@ -14,6 +14,7 @@ import (
 type recordingContentDB struct {
 	contractsdb.DB
 	query            contractsdb.Query
+	transaction      contractsdb.Tx
 	transactionErr   error
 	transactionCalls int
 }
@@ -26,9 +27,13 @@ func (f *recordingContentDB) Table(string) contractsdb.Query {
 	return f.query
 }
 
-func (f *recordingContentDB) Transaction(func(contractsdb.Tx) error) error {
+func (f *recordingContentDB) Transaction(callback func(contractsdb.Tx) error) error {
 	f.transactionCalls++
-	return f.transactionErr
+	if f.transactionErr != nil {
+		return f.transactionErr
+	}
+
+	return callback(f.transaction)
 }
 
 type recordedWhere struct {
@@ -91,11 +96,32 @@ func (f *recordingContentQuery) Exists() (bool, error) {
 
 type recordingContentTx struct {
 	contractsdb.Tx
-	query contractsdb.Query
+	query          contractsdb.Query
+	selectErr      error
+	selectedPostID int64
+	selects        []recordedRawSelect
 }
 
 func (f *recordingContentTx) Table(string) contractsdb.Query {
 	return f.query
+}
+
+type recordedRawSelect struct {
+	query string
+	args  []any
+}
+
+func (f *recordingContentTx) Select(dest any, query string, args ...any) error {
+	f.selects = append(f.selects, recordedRawSelect{
+		query: query,
+		args:  append([]any(nil), args...),
+	})
+	if f.selectErr != nil {
+		return f.selectErr
+	}
+
+	dest.(*insertedPostIDRow).ID = f.selectedPostID
+	return nil
 }
 
 func TestContentRepositoryListPostsUsesStableOrderAndBoundTopicFilter(t *testing.T) {
@@ -187,6 +213,95 @@ func TestContentRepositoryMutationsStartTransactions(t *testing.T) {
 				t.Fatalf("transaction calls = %d, want 1", database.transactionCalls)
 			}
 		})
+	}
+}
+
+func TestInsertPostReturningIDUsesPostgreSQLReturningAndBoundValues(t *testing.T) {
+	t.Parallel()
+
+	examName := "Thi vẽ Mùa hè"
+	input := CreatePostInput{
+		Title:    "Sắc màu tuổi thơ",
+		Caption:  "Bài vẽ màu nước.",
+		ImageURL: "https://example.com/art.jpg",
+		ExamName: &examName,
+	}
+	transaction := &recordingContentTx{selectedPostID: 42}
+
+	postID, err := insertPostReturningID(transaction, 7, input)
+
+	if err != nil {
+		t.Fatalf("insertPostReturningID error = %v", err)
+	}
+	if postID != 42 {
+		t.Fatalf("insertPostReturningID post ID = %d, want 42", postID)
+	}
+	if len(transaction.selects) != 1 {
+		t.Fatalf("raw select calls = %d, want 1", len(transaction.selects))
+	}
+
+	wantQuery := `INSERT INTO posts (
+	user_id,
+	title,
+	caption,
+	image_url,
+	exam_name,
+	status
+) VALUES ($1, $2, $3, $4, $5, $6)
+RETURNING id`
+	if transaction.selects[0].query != wantQuery {
+		t.Fatalf("insert query = %q, want %q", transaction.selects[0].query, wantQuery)
+	}
+
+	wantArgs := []any{
+		int64(7),
+		input.Title,
+		input.Caption,
+		input.ImageURL,
+		input.ExamName,
+		models.PostStatusPublished,
+	}
+	if !reflect.DeepEqual(transaction.selects[0].args, wantArgs) {
+		t.Fatalf("insert args = %#v, want %#v", transaction.selects[0].args, wantArgs)
+	}
+}
+
+func TestCreatePostReturnsPostgreSQLInsertError(t *testing.T) {
+	t.Parallel()
+
+	insertFailure := errors.New("insert returning failed")
+	transaction := &recordingContentTx{selectErr: insertFailure}
+	database := &recordingContentDB{transaction: transaction}
+	repository := NewContentRepository(database)
+	input := CreatePostInput{
+		Title:    "Bình minh",
+		Caption:  "Màu nước.",
+		ImageURL: "https://example.com/art.jpg",
+	}
+
+	post, err := repository.CreatePost(context.Background(), 9, input)
+
+	if !errors.Is(err, insertFailure) {
+		t.Fatalf("CreatePost error = %v, want insert failure", err)
+	}
+	if !reflect.DeepEqual(post, Post{}) {
+		t.Fatalf("CreatePost post = %#v, want zero value", post)
+	}
+	if database.transactionCalls != 1 {
+		t.Fatalf("transaction calls = %d, want 1", database.transactionCalls)
+	}
+	if len(transaction.selects) != 1 {
+		t.Fatalf("raw select calls = %d, want 1", len(transaction.selects))
+	}
+	if !reflect.DeepEqual(transaction.selects[0].args, []any{
+		int64(9),
+		input.Title,
+		input.Caption,
+		input.ImageURL,
+		input.ExamName,
+		models.PostStatusPublished,
+	}) {
+		t.Fatalf("insert args = %#v, want bound create-post values", transaction.selects[0].args)
 	}
 }
 

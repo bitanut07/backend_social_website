@@ -4,13 +4,13 @@
 
 Cung cấp REST API bằng Goravel cho mạng xã hội bài thi vẽ: người dùng mẫu, chủ
 đề, bài đăng, reaction, tin nhắn trực tiếp và trợ lý thống kê. Backend mặc định
-dùng MySQL 8 và có `sql.sql` để khởi tạo thủ công.
+dùng PostgreSQL 17 và có `sql.sql` để khởi tạo thủ công bằng `psql`.
 
 ## Công nghệ
 
 - Go theo phiên bản được Goravel hỗ trợ.
 - Goravel phiên bản ổn định hiện hành.
-- MySQL 8, không có cấu hình PostgreSQL.
+- PostgreSQL 17.
 - OpenAI Responses API là adapter tùy chọn; parser cục bộ luôn sẵn sàng.
 
 ## Lệnh
@@ -32,7 +32,7 @@ app/services/          Nghiệp vụ và trợ lý
 database/migrations/   Schema có thể nâng cấp
 routes/                Route `/api/v1`
 docs/openapi.yaml      Hợp đồng API
-sql.sql                MySQL schema + index + seed
+sql.sql                Script psql tạo database + schema + index + seed
 ```
 
 ## Quy ước code
@@ -129,7 +129,8 @@ Response lỗi:
 
 ## Tiêu chí hoàn thành
 
-- `sql.sql` chạy được trên MySQL 8 và tạo schema + dữ liệu mẫu.
+- `sql.sql` chạy được bằng `psql` với PostgreSQL 17 và tạo database, schema,
+  index cùng dữ liệu mẫu.
 - API đáp ứng đủ bài đăng, reaction, tin nhắn và thống kê chủ đề.
 - Không cần API key vẫn trả lời được câu hỏi mẫu.
 - Có API key thì dùng Responses API và fallback an toàn khi lỗi.

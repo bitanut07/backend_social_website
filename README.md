@@ -22,10 +22,11 @@ thông báo realtime hay kiến trúc microservice.
 - Go **1.25.12** hoặc **1.26.5 trở lên** để có đầy đủ bản vá bảo mật của
   toolchain; mã nguồn giữ mức ngôn ngữ `go 1.25.0` trong `go.mod`.
 - Goravel 1.18.
-- **MySQL 8** và MySQL command-line client.
+- **PostgreSQL 17** và command-line client `psql`.
 - OpenAI API key chỉ cần khi muốn bật adapter AI tùy chọn.
 
-Backend này chỉ hỗ trợ MySQL. Dự án không có cấu hình hay hướng dẫn PostgreSQL.
+Backend này dùng PostgreSQL 17; cấu hình, migration, Docker Compose và
+`sql.sql` đều thống nhất với PostgreSQL.
 
 ## Chạy nhanh với `sql.sql`
 
@@ -35,16 +36,38 @@ Từ thư mục `backend`:
 go mod download
 cp .env.example .env
 go run . artisan key:generate
-mysql -u root -p < sql.sql
+psql -h 127.0.0.1 -U postgres -d postgres -f sql.sql
 go run .
 ```
 
-Lệnh `key:generate` điền `APP_KEY` 32 ký tự bắt buộc vào `.env`. Lệnh `mysql`
-sẽ hỏi mật khẩu, tạo database `artly_social` với UTF-8, tạo bảng/index và nạp
-dữ liệu mẫu. File SQL dùng `IF NOT EXISTS`/upsert nên có thể chạy lại an toàn.
-Nếu dùng tài khoản MySQL khác, thay `root` và cập nhật `DB_USERNAME`,
-`DB_PASSWORD` trong `.env` cho khớp. API mặc định chạy tại
-`http://127.0.0.1:3000`.
+Lệnh `key:generate` điền `APP_KEY` 32 ký tự bắt buộc vào `.env`. Script
+`sql.sql` dùng lệnh meta của `psql` để kiểm tra, tạo database `artly_social` khi
+chưa tồn tại, kết nối vào database đó, tạo schema/index và nạp dữ liệu mẫu. Khi
+script được gọi từ một database ứng dụng khác với `postgres`/`template1`, nó giữ
+nguyên database hiện tại; nhờ đó `DB_DATABASE` tùy chỉnh của Docker Compose vẫn
+được tôn trọng. Tài khoản chạy lệnh cần có quyền `CREATEDB` nếu database đích
+chưa tồn tại; script dùng `IF NOT EXISTS` và `ON CONFLICT` nên có thể chạy lại
+an toàn. Script và cấu hình Compose khởi tạo bảng trong schema `public`; nếu
+dùng schema khác, hãy tạo schema đó trước và chạy Goravel migration thay cho
+`sql.sql`.
+
+Cấu hình mẫu dùng tài khoản PostgreSQL `postgres` và để trống mật khẩu để người
+dùng điền theo server local. Nếu PostgreSQL trên máy dùng thông tin khác, thay
+`postgres` trong lệnh và cập nhật `DB_USERNAME`, `DB_PASSWORD` trong `.env` cho
+khớp. `psql` sẽ hỏi mật khẩu khi cơ chế xác thực của server yêu cầu. API mặc
+định chạy tại `http://127.0.0.1:3000`.
+
+Nếu tài khoản ứng dụng không có quyền `CREATEDB`, hãy nhờ quản trị viên tạo
+database trước, rồi vẫn chạy script bằng một tài khoản có quyền trên
+`artly_social`:
+
+```bash
+createdb -h 127.0.0.1 -U postgres -O artly_app artly_social
+psql -h 127.0.0.1 -U artly_app -d postgres -f sql.sql
+```
+
+Thay `artly_app` bằng role thực tế. Script bắt đầu ở database `postgres`, bỏ qua
+bước tạo khi thấy `artly_social` đã tồn tại rồi tự `\connect artly_social`.
 
 Kiểm tra dịch vụ:
 
@@ -64,14 +87,14 @@ Kết quả mong đợi:
 trong một lần. Nếu muốn quản lý schema qua Goravel migration:
 
 ```bash
-mysql -u root -p -e \
-  "CREATE DATABASE IF NOT EXISTS artly_social CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci"
+createdb -h 127.0.0.1 -U postgres artly_social
 go run . artisan migrate
 ```
 
-Migration chỉ tạo cấu trúc database. Cần tự nạp dữ liệu hoặc chạy `sql.sql` sau
-đó nếu muốn dùng bộ dữ liệu mẫu; file SQL dùng `CREATE TABLE IF NOT EXISTS` và
-upsert nên không xóa dữ liệu đang có.
+Nếu database đã tồn tại, bỏ qua lệnh `createdb`. Migration chỉ tạo cấu trúc
+database. Cần tự nạp dữ liệu hoặc chạy `sql.sql` sau đó nếu muốn dùng bộ dữ liệu
+mẫu; file SQL dùng `CREATE TABLE IF NOT EXISTS` và `ON CONFLICT` nên không xóa
+dữ liệu đang có.
 
 ### Chạy bằng Docker Compose (tùy chọn)
 
@@ -81,10 +104,11 @@ Sau khi đã tạo `.env` và `APP_KEY` như phần chạy nhanh:
 docker compose up --build
 ```
 
-Compose khởi động MySQL 8.4, tự nạp `sql.sql` khi volume database được tạo lần
-đầu, chờ MySQL sẵn sàng rồi mới chạy Goravel tại cổng 3000. Mật khẩu MySQL local
-mặc định của Compose là `artly_local`; có thể ghi đè bằng `DB_PASSWORD` trong
-`.env`.
+Compose khởi động PostgreSQL 17, tự nạp `sql.sql` khi volume database được tạo
+lần đầu, chờ PostgreSQL sẵn sàng rồi mới chạy Goravel tại cổng 3000. Tài khoản
+local mặc định là `postgres`, mật khẩu là `artly_local`; có thể ghi đè bằng
+`DB_DATABASE`, `DB_USERNAME` và `DB_PASSWORD` trong `.env`. Khi đổi
+`DB_DATABASE`, script nạp schema và seed vào đúng database đó.
 
 ## Cấu hình
 
@@ -98,13 +122,15 @@ Sao chép `.env.example` thành `.env` và tối thiểu kiểm tra các biến 
 | `APP_HOST` | `127.0.0.1` | Địa chỉ backend lắng nghe. |
 | `APP_PORT` | `3000` | Cổng HTTP. |
 | `CORS_ALLOWED_ORIGIN` | `http://localhost:5173` | Origin frontend được phép gọi API. |
-| `DB_CONNECTION` | `mysql` | Luôn dùng `mysql` cho dự án này. |
-| `DB_HOST` | `127.0.0.1` | Máy chủ MySQL. |
-| `DB_PORT` | `3306` | Cổng MySQL. |
+| `DB_CONNECTION` | `postgres` | Luôn dùng `postgres` cho dự án này. |
+| `DB_HOST` | `127.0.0.1` | Máy chủ PostgreSQL. |
+| `DB_PORT` | `5432` | Cổng PostgreSQL. |
 | `DB_DATABASE` | `artly_social` | Database được `sql.sql` tạo và chọn. |
-| `DB_USERNAME` | `root` | Tài khoản kết nối MySQL. |
-| `DB_PASSWORD` | trống | Mật khẩu MySQL trên máy local. |
+| `DB_USERNAME` | `postgres` | Tài khoản PostgreSQL local/Compose. |
+| `DB_PASSWORD` | trống | Mật khẩu PostgreSQL local; Compose fallback sang `artly_local`. |
 | `DB_TIMEZONE` | `UTC` | Múi giờ của kết nối database. |
+| `DB_SSLMODE` | `disable` | Tắt TLS cho local; production phải dùng chế độ phù hợp. |
+| `DB_SCHEMA` | `public` | Schema PostgreSQL mặc định của ứng dụng. |
 | `AI_PROVIDER` | `local` | Dùng `local` mặc định; đặt `openai` để thử adapter tùy chọn. |
 | `OPENAI_API_KEY` | trống | Bỏ trống để chỉ dùng parser cục bộ. |
 | `OPENAI_BASE_URL` | trống | Base URL tương thích OpenAI nếu cần ghi đè. |
@@ -239,9 +265,9 @@ go test ./... && go vet ./...
 ## Kiến trúc
 
 Controller xử lý HTTP và validation ở boundary; service chứa nghiệp vụ; model
-ánh xạ schema MySQL. Tất cả giá trị động đi qua ORM/query builder hoặc placeholder
-parameterized. Trợ lý chỉ tạo một ý định an toàn và chủ đề đã resolve, không tạo
-câu truy vấn.
+ánh xạ schema PostgreSQL. Tất cả giá trị động đi qua ORM/query builder hoặc
+placeholder parameterized. Trợ lý chỉ tạo một ý định an toàn và chủ đề đã
+resolve, không tạo câu truy vấn.
 
 ```text
 app/
@@ -258,7 +284,7 @@ bootstrap/
 config/
   ai.go                OpenAI adapter tùy chọn
   cors.go              CORS allowlist
-  database.go          Kết nối MySQL duy nhất
+  database.go          Kết nối PostgreSQL duy nhất
 database/
   migrations/          Schema có thể nâng cấp
 docs/
@@ -266,7 +292,7 @@ docs/
   openapi.yaml         Hợp đồng HTTP chính thức
 routes/
   web.go               Route HTTP, gồm prefix /api/v1
-sql.sql                Schema, index và dữ liệu demo cho MySQL 8
+sql.sql                Script psql tạo database, schema, index và dữ liệu demo
 ```
 
 ## Lưu ý bảo mật

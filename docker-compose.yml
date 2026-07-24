@@ -1,16 +1,17 @@
 services:
-  mysql:
-    image: mysql:8.4
+  postgres:
+    image: postgres:17-alpine
     environment:
-      MYSQL_DATABASE: ${DB_DATABASE:-artly_social}
-      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-artly_local}
+      POSTGRES_DB: ${DB_DATABASE:-artly_social}
+      POSTGRES_USER: ${DB_USERNAME:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-artly_local}
     volumes:
-      - artly_mysql_data:/var/lib/mysql
+      - artly_postgres_data:/var/lib/postgresql/data
       - ./sql.sql:/docker-entrypoint-initdb.d/001-artly.sql:ro
     healthcheck:
       test:
         - CMD-SHELL
-        - MYSQL_PWD=$$MYSQL_ROOT_PASSWORD mysqladmin ping -h 127.0.0.1 -uroot --silent
+        - pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"
       interval: 5s
       timeout: 3s
       retries: 20
@@ -23,18 +24,20 @@ services:
     environment:
       APP_HOST: 0.0.0.0
       APP_PORT: 3000
-      DB_CONNECTION: mysql
-      DB_HOST: mysql
-      DB_PORT: 3306
+      DB_CONNECTION: postgres
+      DB_HOST: postgres
+      DB_PORT: 5432
       DB_DATABASE: ${DB_DATABASE:-artly_social}
-      DB_USERNAME: root
+      DB_USERNAME: ${DB_USERNAME:-postgres}
       DB_PASSWORD: ${DB_PASSWORD:-artly_local}
+      DB_SSLMODE: disable
+      DB_SCHEMA: public
     ports:
       - "3000:3000"
     depends_on:
-      mysql:
+      postgres:
         condition: service_healthy
     restart: unless-stopped
 
 volumes:
-  artly_mysql_data:
+  artly_postgres_data:

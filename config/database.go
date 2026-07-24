@@ -2,7 +2,7 @@ package config
 
 import (
 	"github.com/goravel/framework/contracts/database/driver"
-	mysqlfacades "github.com/goravel/mysql/facades"
+	postgresfacades "github.com/goravel/postgres/facades"
 
 	"goravel/app/facades"
 )
@@ -11,21 +11,22 @@ func init() {
 	config := facades.Config()
 	config.Add("database", map[string]any{
 		// Default database connection name
-		"default": config.Env("DB_CONNECTION", "mysql"),
+		"default": config.Env("DB_CONNECTION", "postgres"),
 		// Database connections
 		"connections": map[string]any{
-			"mysql": map[string]any{
+			"postgres": map[string]any{
 				"host":     config.Env("DB_HOST", "127.0.0.1"),
-				"port":     config.Env("DB_PORT", 3306),
+				"port":     config.Env("DB_PORT", 5432),
 				"database": config.Env("DB_DATABASE", "artly_social"),
-				"username": config.Env("DB_USERNAME", "root"),
+				"username": config.Env("DB_USERNAME", "postgres"),
 				"password": config.Env("DB_PASSWORD"),
-				"charset":  "utf8mb4",
-				"loc":      config.Env("DB_TIMEZONE", "UTC"),
+				"sslmode":  config.Env("DB_SSLMODE", "disable"),
+				"schema":   config.Env("DB_SCHEMA", "public"),
+				"timezone": config.Env("DB_TIMEZONE", "UTC"),
 				"singular": false,
 				"prefix":   "",
 				"via": func() (driver.Driver, error) {
-					return mysqlfacades.Mysql("mysql")
+					return postgresfacades.Postgres("postgres")
 				},
 			},
 		},
