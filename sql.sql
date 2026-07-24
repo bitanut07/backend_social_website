@@ -1,31 +1,7 @@
 -- Artly Social - schema và dữ liệu mẫu cho PostgreSQL 17.
--- Chạy file bằng psql. File có thể chạy lại an toàn nhờ IF NOT EXISTS
--- và ON CONFLICT.
-
-\set ON_ERROR_STOP on
-
--- Khi chạy thủ công từ database "postgres" hoặc "template1", mặc định tạo
--- database artly_social. Nếu Docker đã kết nối vào POSTGRES_DB tùy chỉnh thì
--- giữ chính database hiện tại, không hardcode tên database của container.
-SELECT CASE
-  WHEN current_database() IN ('postgres', 'template1') THEN 'artly_social'
-  ELSE current_database()
-END AS artly_database
-\gset
-
-SELECT format(
-  'CREATE DATABASE %I WITH ENCODING %L TEMPLATE template0',
-  :'artly_database',
-  'UTF8'
-)
-WHERE NOT EXISTS (
-  SELECT 1
-  FROM pg_database
-  WHERE datname = :'artly_database'
-)
-\gexec
-
-\connect :artly_database
+-- Đây là SQL thuần, chạy trực tiếp được trong Supabase SQL Editor, psql
+-- hoặc Docker. Hãy chọn đúng database trước khi chạy file.
+-- File có thể chạy lại an toàn nhờ IF NOT EXISTS và ON CONFLICT.
 
 SET client_encoding = 'UTF8';
 SET TIME ZONE 'UTC';

@@ -22,7 +22,7 @@ thông báo realtime hay kiến trúc microservice.
 - Go **1.25.12** hoặc **1.26.5 trở lên** để có đầy đủ bản vá bảo mật của
   toolchain; mã nguồn giữ mức ngôn ngữ `go 1.25.0` trong `go.mod`.
 - Goravel 1.18.
-- **PostgreSQL 17** và command-line client `psql`.
+- **PostgreSQL 17**; command-line client `psql` chỉ cần khi chạy local bằng CLI.
 - OpenAI API key chỉ cần khi muốn bật adapter AI tùy chọn.
 
 Backend này dùng PostgreSQL 17; cấu hình, migration, Docker Compose và
@@ -36,20 +36,21 @@ Từ thư mục `backend`:
 go mod download
 cp .env.example .env
 go run . artisan key:generate
-psql -h 127.0.0.1 -U postgres -d postgres -f sql.sql
+createdb -h 127.0.0.1 -U postgres artly_social
+psql -h 127.0.0.1 -U postgres -d artly_social -f sql.sql
 go run .
 ```
 
-Lệnh `key:generate` điền `APP_KEY` 32 ký tự bắt buộc vào `.env`. Script
-`sql.sql` dùng lệnh meta của `psql` để kiểm tra, tạo database `artly_social` khi
-chưa tồn tại, kết nối vào database đó, tạo schema/index và nạp dữ liệu mẫu. Khi
-script được gọi từ một database ứng dụng khác với `postgres`/`template1`, nó giữ
-nguyên database hiện tại; nhờ đó `DB_DATABASE` tùy chỉnh của Docker Compose vẫn
-được tôn trọng. Tài khoản chạy lệnh cần có quyền `CREATEDB` nếu database đích
-chưa tồn tại; script dùng `IF NOT EXISTS` và `ON CONFLICT` nên có thể chạy lại
-an toàn. Script và cấu hình Compose khởi tạo bảng trong schema `public`; nếu
-dùng schema khác, hãy tạo schema đó trước và chạy Goravel migration thay cho
-`sql.sql`.
+Nếu database đã tồn tại, bỏ qua lệnh `createdb`. Lệnh `key:generate` điền
+`APP_KEY` 32 ký tự bắt buộc vào `.env`.
+
+`sql.sql` là SQL PostgreSQL thuần, không chứa lệnh meta của `psql` và không tự
+tạo hoặc đổi database. File tạo schema, bảng, index, trigger và dữ liệu mẫu
+trong **database đang được kết nối**. Vì vậy phải tạo rồi chọn
+`artly_social` trước khi chạy file. Script dùng `IF NOT EXISTS` và
+`ON CONFLICT` nên có thể chạy lại an toàn. Mặc định các bảng nằm trong schema
+`public`; nếu dùng schema khác, hãy tạo schema đó trước và chạy Goravel migration
+thay cho `sql.sql`.
 
 Cấu hình mẫu dùng tài khoản PostgreSQL `postgres` và để trống mật khẩu để người
 dùng điền theo server local. Nếu PostgreSQL trên máy dùng thông tin khác, thay
@@ -58,16 +59,31 @@ khớp. `psql` sẽ hỏi mật khẩu khi cơ chế xác thực của server y�
 định chạy tại `http://127.0.0.1:3000`.
 
 Nếu tài khoản ứng dụng không có quyền `CREATEDB`, hãy nhờ quản trị viên tạo
-database trước, rồi vẫn chạy script bằng một tài khoản có quyền trên
-`artly_social`:
+database trước, rồi chạy file bằng tài khoản có quyền trên `artly_social`:
 
 ```bash
 createdb -h 127.0.0.1 -U postgres -O artly_app artly_social
-psql -h 127.0.0.1 -U artly_app -d postgres -f sql.sql
+psql -h 127.0.0.1 -U artly_app -d artly_social -f sql.sql
 ```
 
-Thay `artly_app` bằng role thực tế. Script bắt đầu ở database `postgres`, bỏ qua
-bước tạo khi thấy `artly_social` đã tồn tại rồi tự `\connect artly_social`.
+Thay `artly_app` bằng role thực tế. Lệnh `createdb` ở ví dụ này phải do tài
+khoản quản trị chạy; `artly_app` chỉ cần quyền tạo và sử dụng đối tượng trong
+database đã được cấp cho mình.
+
+### Chạy bằng Query Editor hoặc Supabase
+
+Với Query Editor của một công cụ quản trị PostgreSQL thông thường:
+
+1. Tạo database `artly_social` nếu chưa có.
+2. Chọn/kết nối đúng database `artly_social`.
+3. Mở `sql.sql`, dán toàn bộ nội dung vào editor rồi chạy.
+
+Không dán lệnh shell `createdb` hoặc `psql` vào Query Editor.
+
+Với **Supabase**, project đã có sẵn database và schema `public`, nên không cần
+và không được chạy `createdb`/`psql` trong SQL Editor. Mở **SQL Editor** của
+đúng project, tạo query mới, dán toàn bộ nội dung `sql.sql` rồi chọn **Run**.
+Các bảng và dữ liệu mẫu sẽ được tạo trong schema `public` của project đó.
 
 Kiểm tra dịch vụ:
 
@@ -104,11 +120,12 @@ Sau khi đã tạo `.env` và `APP_KEY` như phần chạy nhanh:
 docker compose up --build
 ```
 
-Compose khởi động PostgreSQL 17, tự nạp `sql.sql` khi volume database được tạo
-lần đầu, chờ PostgreSQL sẵn sàng rồi mới chạy Goravel tại cổng 3000. Tài khoản
-local mặc định là `postgres`, mật khẩu là `artly_local`; có thể ghi đè bằng
-`DB_DATABASE`, `DB_USERNAME` và `DB_PASSWORD` trong `.env`. Khi đổi
-`DB_DATABASE`, script nạp schema và seed vào đúng database đó.
+Compose khởi động PostgreSQL 17. Biến `POSTGRES_DB` tạo database trước; sau đó
+Docker chỉ dùng `sql.sql` để nạp schema, index và dữ liệu mẫu vào database đó
+khi volume được tạo lần đầu. Compose chờ PostgreSQL sẵn sàng rồi mới chạy
+Goravel tại cổng 3000. Tài khoản local mặc định là `postgres`, mật khẩu là
+`artly_local`; có thể ghi đè bằng `DB_DATABASE`, `DB_USERNAME` và
+`DB_PASSWORD` trong `.env`.
 
 ## Cấu hình
 
@@ -125,7 +142,7 @@ Sao chép `.env.example` thành `.env` và tối thiểu kiểm tra các biến 
 | `DB_CONNECTION` | `postgres` | Luôn dùng `postgres` cho dự án này. |
 | `DB_HOST` | `127.0.0.1` | Máy chủ PostgreSQL. |
 | `DB_PORT` | `5432` | Cổng PostgreSQL. |
-| `DB_DATABASE` | `artly_social` | Database được `sql.sql` tạo và chọn. |
+| `DB_DATABASE` | `artly_social` | Database phải được tạo/chọn trước khi chạy `sql.sql`. |
 | `DB_USERNAME` | `postgres` | Tài khoản PostgreSQL local/Compose. |
 | `DB_PASSWORD` | trống | Mật khẩu PostgreSQL local; Compose fallback sang `artly_local`. |
 | `DB_TIMEZONE` | `UTC` | Múi giờ của kết nối database. |
@@ -292,7 +309,7 @@ docs/
   openapi.yaml         Hợp đồng HTTP chính thức
 routes/
   web.go               Route HTTP, gồm prefix /api/v1
-sql.sql                Script psql tạo database, schema, index và dữ liệu demo
+sql.sql                SQL PostgreSQL thuần tạo schema, index và dữ liệu demo
 ```
 
 ## Lưu ý bảo mật

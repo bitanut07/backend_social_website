@@ -4,7 +4,8 @@
 
 Cung cấp REST API bằng Goravel cho mạng xã hội bài thi vẽ: người dùng mẫu, chủ
 đề, bài đăng, reaction, tin nhắn trực tiếp và trợ lý thống kê. Backend mặc định
-dùng PostgreSQL 17 và có `sql.sql` để khởi tạo thủ công bằng `psql`.
+dùng PostgreSQL 17 và có `sql.sql` thuần PostgreSQL để tạo schema, index cùng dữ
+liệu mẫu trong database đã được chọn.
 
 ## Công nghệ
 
@@ -21,6 +22,20 @@ dùng PostgreSQL 17 và có `sql.sql` để khởi tạo thủ công bằng `psq
 - Test: `go test ./...`
 - Static analysis: `go vet ./...`
 
+## Khởi tạo PostgreSQL
+
+- Local CLI: tạo `artly_social` bằng `createdb`, sau đó chạy
+  `psql -d artly_social -f sql.sql`.
+- Query Editor thông thường: tạo và chọn `artly_social` trước, sau đó chạy toàn
+  bộ nội dung `sql.sql`.
+- Supabase SQL Editor: dùng database và schema `public` có sẵn của project, dán
+  toàn bộ `sql.sql` rồi Run; không chạy lệnh shell `createdb` hoặc `psql`.
+- Docker: `POSTGRES_DB` tạo database trước; entrypoint chỉ dùng `sql.sql` để tạo
+  schema, index và dữ liệu seed trong database đó.
+
+`sql.sql` không chứa lệnh meta của `psql`, không tạo database và không chuyển
+kết nối giữa các database.
+
 ## Cấu trúc
 
 ```text
@@ -32,7 +47,7 @@ app/services/          Nghiệp vụ và trợ lý
 database/migrations/   Schema có thể nâng cấp
 routes/                Route `/api/v1`
 docs/openapi.yaml      Hợp đồng API
-sql.sql                Script psql tạo database + schema + index + seed
+sql.sql                SQL PostgreSQL thuần tạo schema + index + seed
 ```
 
 ## Quy ước code
@@ -129,8 +144,8 @@ Response lỗi:
 
 ## Tiêu chí hoàn thành
 
-- `sql.sql` chạy được bằng `psql` với PostgreSQL 17 và tạo database, schema,
-  index cùng dữ liệu mẫu.
+- `sql.sql` chạy được bằng `psql` hoặc Query Editor với PostgreSQL 17; database
+  đích phải được tạo/chọn trước, còn file tạo schema, index và dữ liệu mẫu.
 - API đáp ứng đủ bài đăng, reaction, tin nhắn và thống kê chủ đề.
 - Không cần API key vẫn trả lời được câu hỏi mẫu.
 - Có API key thì dùng Responses API và fallback an toàn khi lỗi.
