@@ -22,7 +22,7 @@ const (
 var ErrDemoUserRequired = errors.New("demo user is missing or does not exist")
 
 type AssistantTopic struct {
-	ID      uint64   `json:"id"`
+	ID      string   `json:"id"`
 	Slug    string   `json:"slug"`
 	Name    string   `json:"name"`
 	Aliases []string `json:"aliases,omitempty"`
@@ -42,9 +42,9 @@ type AssistantResponse struct {
 }
 
 type AssistantDataRepository interface {
-	UserExists(context.Context, uint64) (bool, error)
+	UserExists(context.Context, string) (bool, error)
 	ResolveTopic(context.Context, string) (repositories.AssistantTopic, bool, error)
-	CountPublishedPostsByTopic(context.Context, uint64) (int64, error)
+	CountPublishedPostsByTopic(context.Context, string) (int64, error)
 }
 
 type TopicExtractor interface {
@@ -68,7 +68,7 @@ func NewAssistantService(
 
 func (s *AssistantService) Ask(
 	ctx context.Context,
-	userID uint64,
+	userID string,
 	question string,
 ) (AssistantResponse, error) {
 	exists, err := s.repository.UserExists(ctx, userID)

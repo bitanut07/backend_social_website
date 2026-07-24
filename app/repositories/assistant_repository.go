@@ -15,7 +15,7 @@ import (
 const maximumNormalizedTopicLength = 100
 
 type AssistantTopic struct {
-	ID      uint64
+	ID      string
 	Slug    string
 	Name    string
 	Aliases []string
@@ -33,7 +33,7 @@ func newAssistantRepository(database assistantDatabase) *AssistantRepository {
 	return &AssistantRepository{database: database}
 }
 
-func (r *AssistantRepository) UserExists(ctx context.Context, userID uint64) (bool, error) {
+func (r *AssistantRepository) UserExists(ctx context.Context, userID string) (bool, error) {
 	return r.database.
 		WithContext(ctx).
 		Query().
@@ -79,7 +79,7 @@ func (r *AssistantRepository) ResolveTopic(
 
 func (r *AssistantRepository) CountPublishedPostsByTopic(
 	ctx context.Context,
-	topicID uint64,
+	topicID string,
 ) (int64, error) {
 	return r.database.
 		WithContext(ctx).
@@ -125,7 +125,7 @@ func findTopicByAlias(query assistantQuery, normalized string) (models.Topic, bo
 	return topic, true, nil
 }
 
-func listTopicAliases(query assistantQuery, topicID uint64) ([]string, error) {
+func listTopicAliases(query assistantQuery, topicID string) ([]string, error) {
 	var aliases []models.TopicAlias
 	err := query.
 		Model(&models.TopicAlias{}).

@@ -14,15 +14,21 @@ import (
 	"goravel/app/services"
 )
 
+const (
+	assistantControllerTestUserID           = "00000000-0000-4000-8000-000000000001"
+	assistantControllerTestUnknownUserID    = "00000000-0000-4000-8000-000000000099"
+	assistantControllerTestLandscapeTopicID = "10000000-0000-4000-8000-000000000001"
+)
+
 type assistantQuestionServiceFake struct {
 	response services.AssistantResponse
 	err      error
-	userID   uint64
+	userID   string
 	question string
 	calls    int
 }
 
-func (f *assistantQuestionServiceFake) Ask(_ context.Context, userID uint64, question string) (services.AssistantResponse, error) {
+func (f *assistantQuestionServiceFake) Ask(_ context.Context, userID string, question string) (services.AssistantResponse, error) {
 	f.calls++
 	f.userID = userID
 	f.question = question
@@ -41,7 +47,7 @@ func TestAssistantControllerReturnsDirectSuccessPayload(t *testing.T) {
 			Result: &services.AssistantCountResult{
 				Count: 8,
 				Topic: services.AssistantTopic{
-					ID:      2,
+					ID:      assistantControllerTestLandscapeTopicID,
 					Slug:    "phong-canh",
 					Name:    "Phong cảnh",
 					Aliases: []string{"cảnh vật", "landscape"},
@@ -55,7 +61,7 @@ func TestAssistantControllerReturnsDirectSuccessPayload(t *testing.T) {
 		`{"question":"  Có bao nhiêu bài về phong cảnh?  "}`,
 	))
 
-	request.header = "12"
+	request.header = assistantControllerTestUserID
 	request.origin = origin
 
 	response := controller.Ask(ctx)
@@ -64,8 +70,15 @@ func TestAssistantControllerReturnsDirectSuccessPayload(t *testing.T) {
 		t.Fatal("Ask() did not return the rendered response")
 	}
 	assertAssistantHTTPResponse(t, responseBuilder, contractshttp.StatusOK, service.response)
-	if service.calls != 1 || service.userID != 12 || service.question != "Có bao nhiêu bài về phong cảnh?" {
-		t.Fatalf("service call = count %d, user %d, question %q", service.calls, service.userID, service.question)
+	if service.calls != 1 ||
+		service.userID != assistantControllerTestUserID ||
+		service.question != "Có bao nhiêu bài về phong cảnh?" {
+		t.Fatalf(
+			"service call = count %d, user %q, question %q",
+			service.calls,
+			service.userID,
+			service.question,
+		)
 	}
 }
 
@@ -100,7 +113,7 @@ func TestAssistantControllerReturnsBadRequestForMalformedJSON(t *testing.T) {
 	ctx, request, responseBuilder, rendered := assistantControllerMocks(t)
 	origin := httptest.NewRequest("POST", "/api/v1/assistant/questions", strings.NewReader(`{"question":`))
 
-	request.header = "1"
+	request.header = assistantControllerTestUserID
 	request.origin = origin
 	expected := contractshttp.Json{
 		"error": contractshttp.Json{
@@ -128,7 +141,7 @@ func TestAssistantControllerRejectsOversizedRequestBodyBeforeService(t *testing.
 		`{"question":"`+strings.Repeat("x", 5000)+`"}`,
 	))
 
-	request.header = "1"
+	request.header = assistantControllerTestUserID
 	request.origin = origin
 	expected := contractshttp.Json{
 		"error": contractshttp.Json{
@@ -154,7 +167,7 @@ func TestAssistantControllerValidatesWhitespaceOnlyQuestion(t *testing.T) {
 	ctx, request, responseBuilder, rendered := assistantControllerMocks(t)
 	origin := httptest.NewRequest("POST", "/api/v1/assistant/questions", strings.NewReader(`{"question":"   "}`))
 
-	request.header = "1"
+	request.header = assistantControllerTestUserID
 	request.origin = origin
 	expected := contractshttp.Json{
 		"error": contractshttp.Json{
@@ -186,7 +199,7 @@ func TestAssistantControllerValidatesQuestionLengthByUnicodeCharacters(t *testin
 		`{"question":"`+strings.Repeat("ạ", 501)+`"}`,
 	))
 
-	request.header = "1"
+	request.header = assistantControllerTestUserID
 	request.origin = origin
 	expected := contractshttp.Json{
 		"error": contractshttp.Json{
@@ -216,7 +229,7 @@ func TestAssistantControllerReturnsValidationErrorForNonStringQuestion(t *testin
 	ctx, request, responseBuilder, rendered := assistantControllerMocks(t)
 	origin := httptest.NewRequest("POST", "/api/v1/assistant/questions", strings.NewReader(`{"question":42}`))
 
-	request.header = "1"
+	request.header = assistantControllerTestUserID
 	request.origin = origin
 	expected := contractshttp.Json{
 		"error": contractshttp.Json{
@@ -246,7 +259,7 @@ func TestAssistantControllerReturnsUnauthorizedForUnknownDemoUser(t *testing.T) 
 	ctx, request, responseBuilder, rendered := assistantControllerMocks(t)
 	origin := httptest.NewRequest("POST", "/api/v1/assistant/questions", strings.NewReader(`{"question":"Đếm bài về phong cảnh"}`))
 
-	request.header = "99"
+	request.header = assistantControllerTestUnknownUserID
 	request.origin = origin
 	expected := contractshttp.Json{
 		"error": contractshttp.Json{
@@ -272,7 +285,7 @@ func TestAssistantControllerMasksInternalFailure(t *testing.T) {
 	ctx, request, responseBuilder, rendered := assistantControllerMocks(t)
 	origin := httptest.NewRequest("POST", "/api/v1/assistant/questions", strings.NewReader(`{"question":"Đếm bài về phong cảnh"}`))
 
-	request.header = "1"
+	request.header = assistantControllerTestUserID
 	request.origin = origin
 	expected := contractshttp.Json{
 		"error": contractshttp.Json{

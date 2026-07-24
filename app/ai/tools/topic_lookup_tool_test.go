@@ -9,6 +9,8 @@ import (
 	"goravel/app/repositories"
 )
 
+const topicLookupToolTestLandscapeTopicID = "10000000-0000-4000-8000-000000000001"
+
 type topicResolverFake struct {
 	topic      repositories.AssistantTopic
 	found      bool
@@ -26,7 +28,7 @@ func TestTopicLookupToolResolvesOnlyNormalizedAllowlistedTopic(t *testing.T) {
 
 	resolver := &topicResolverFake{
 		topic: repositories.AssistantTopic{
-			ID:   2,
+			ID:   topicLookupToolTestLandscapeTopicID,
 			Slug: "phong-canh",
 			Name: "Phong cảnh",
 		},
@@ -44,7 +46,7 @@ func TestTopicLookupToolResolvesOnlyNormalizedAllowlistedTopic(t *testing.T) {
 	if resolver.normalized != "canh vat or 1 1" {
 		t.Fatalf("ResolveTopic() candidate = %q", resolver.normalized)
 	}
-	if result != `{"found":true,"topic":{"id":2,"slug":"phong-canh","name":"Phong cảnh"}}` {
+	if result != `{"found":true,"topic":{"id":"10000000-0000-4000-8000-000000000001","slug":"phong-canh","name":"Phong cảnh"}}` {
 		t.Fatalf("Execute() result = %q", result)
 	}
 }

@@ -9,5 +9,6 @@ import (
 func Migrations() []schema.Migration {
 	return []schema.Migration{
 		&migrations.M20260724000001CreateArtlySocialTables{},
+		&migrations.M20260724000002EnforceArtlyUUIDSchema{},
 	}
 }

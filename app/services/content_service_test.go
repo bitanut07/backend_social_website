@@ -10,32 +10,43 @@ import (
 	"goravel/app/repositories"
 )
 
+const (
+	contentServiceUserID        = "00000000-0000-4000-8000-000000000001"
+	contentServiceOtherUserID   = "00000000-0000-4000-8000-000000000003"
+	contentServiceUnknownUserID = "00000000-0000-4000-8000-000000000404"
+	contentServiceTopicID       = "10000000-0000-4000-8000-000000000001"
+	contentServiceMissingTopic1 = "10000000-0000-4000-8000-000000000077"
+	contentServiceMissingTopic2 = "10000000-0000-4000-8000-000000000088"
+	contentServicePostID        = "20000000-0000-4000-8000-000000000001"
+	contentServiceOtherPostID   = "20000000-0000-4000-8000-000000000002"
+)
+
 type contentListRequest struct {
 	page     int
 	pageSize int
 }
 
 type contentPostListRequest struct {
-	viewerID int64
+	viewerID string
 	page     int
 	pageSize int
-	topicID  *int64
+	topicID  *string
 }
 
 type contentCreateRequest struct {
-	userID int64
+	userID string
 	input  repositories.CreatePostInput
 }
 
 type contentReactionRequest struct {
-	userID int64
-	postID int64
+	userID string
+	postID string
 }
 
 type fakeContentRepository struct {
-	usersByID  map[int64]bool
-	topicsByID map[int64]bool
-	postsByID  map[int64]bool
+	usersByID  map[string]bool
+	topicsByID map[string]bool
+	postsByID  map[string]bool
 
 	userExistsErr     error
 	topicExistsErr    error
@@ -55,14 +66,14 @@ type fakeContentRepository struct {
 	posts               []repositories.Post
 	postsTotal          int64
 	createdPost         repositories.Post
-	missingTopicIDs     []int64
+	missingTopicIDs     []string
 	putReactionState    repositories.ReactionState
 	deleteReactionState repositories.ReactionState
 
-	userExistenceChecks  []int64
-	topicExistenceChecks []int64
-	postExistenceChecks  []int64
-	missingTopicChecks   [][]int64
+	userExistenceChecks  []string
+	topicExistenceChecks []string
+	postExistenceChecks  []string
+	missingTopicChecks   [][]string
 	listUserRequests     []contentListRequest
 	listTopicRequests    []contentListRequest
 	listPostRequests     []contentPostListRequest
@@ -89,7 +100,7 @@ func (f *fakeContentRepository) ListTopics(
 	return f.topics, f.topicsTotal, f.listTopicsErr
 }
 
-func (f *fakeContentRepository) UserExists(_ context.Context, userID int64) (bool, error) {
+func (f *fakeContentRepository) UserExists(_ context.Context, userID string) (bool, error) {
 	f.userExistenceChecks = append(f.userExistenceChecks, userID)
 	if f.userExistsErr != nil {
 		return false, f.userExistsErr
@@ -98,7 +109,7 @@ func (f *fakeContentRepository) UserExists(_ context.Context, userID int64) (boo
 	return f.usersByID[userID], nil
 }
 
-func (f *fakeContentRepository) TopicExists(_ context.Context, topicID int64) (bool, error) {
+func (f *fakeContentRepository) TopicExists(_ context.Context, topicID string) (bool, error) {
 	f.topicExistenceChecks = append(f.topicExistenceChecks, topicID)
 	if f.topicExistsErr != nil {
 		return false, f.topicExistsErr
@@ -109,17 +120,17 @@ func (f *fakeContentRepository) TopicExists(_ context.Context, topicID int64) (b
 
 func (f *fakeContentRepository) MissingTopicIDs(
 	_ context.Context,
-	topicIDs []int64,
-) ([]int64, error) {
-	f.missingTopicChecks = append(f.missingTopicChecks, append([]int64(nil), topicIDs...))
+	topicIDs []string,
+) ([]string, error) {
+	f.missingTopicChecks = append(f.missingTopicChecks, append([]string(nil), topicIDs...))
 	if f.missingTopicsErr != nil {
 		return nil, f.missingTopicsErr
 	}
 
-	return append([]int64(nil), f.missingTopicIDs...), nil
+	return append([]string(nil), f.missingTopicIDs...), nil
 }
 
-func (f *fakeContentRepository) PostExists(_ context.Context, postID int64) (bool, error) {
+func (f *fakeContentRepository) PostExists(_ context.Context, postID string) (bool, error) {
 	f.postExistenceChecks = append(f.postExistenceChecks, postID)
 	if f.postExistsErr != nil {
 		return false, f.postExistsErr
@@ -130,12 +141,12 @@ func (f *fakeContentRepository) PostExists(_ context.Context, postID int64) (boo
 
 func (f *fakeContentRepository) ListPosts(
 	_ context.Context,
-	viewerID int64,
+	viewerID string,
 	page int,
 	pageSize int,
-	topicID *int64,
+	topicID *string,
 ) ([]repositories.Post, int64, error) {
-	var capturedTopicID *int64
+	var capturedTopicID *string
 	if topicID != nil {
 		value := *topicID
 		capturedTopicID = &value
@@ -152,7 +163,7 @@ func (f *fakeContentRepository) ListPosts(
 
 func (f *fakeContentRepository) CreatePost(
 	_ context.Context,
-	userID int64,
+	userID string,
 	input repositories.CreatePostInput,
 ) (repositories.Post, error) {
 	f.createRequests = append(f.createRequests, contentCreateRequest{userID: userID, input: input})
@@ -161,8 +172,8 @@ func (f *fakeContentRepository) CreatePost(
 
 func (f *fakeContentRepository) PutReaction(
 	_ context.Context,
-	userID int64,
-	postID int64,
+	userID string,
+	postID string,
 ) (repositories.ReactionState, error) {
 	f.putRequests = append(f.putRequests, contentReactionRequest{userID: userID, postID: postID})
 	return f.putReactionState, f.putReactionErr
@@ -170,8 +181,8 @@ func (f *fakeContentRepository) PutReaction(
 
 func (f *fakeContentRepository) DeleteReaction(
 	_ context.Context,
-	userID int64,
-	postID int64,
+	userID string,
+	postID string,
 ) (repositories.ReactionState, error) {
 	f.deleteRequests = append(f.deleteRequests, contentReactionRequest{userID: userID, postID: postID})
 	return f.deleteReactionState, f.deleteReactionErr
@@ -184,8 +195,18 @@ func TestContentServiceListsUsersAndTopicsThroughRepository(t *testing.T) {
 		t.Parallel()
 
 		wantUsers := []repositories.User{
-			{ID: 1, Username: "linh.ve", DisplayName: "Nguyễn Gia Linh", Role: "STUDENT"},
-			{ID: 2, Username: "co.mai", DisplayName: "Cô Mai Anh", Role: "TEACHER"},
+			{
+				ID:          contentServiceUserID,
+				Username:    "linh.ve",
+				DisplayName: "Nguyễn Gia Linh",
+				Role:        "STUDENT",
+			},
+			{
+				ID:          contentServiceOtherUserID,
+				Username:    "co.mai",
+				DisplayName: "Cô Mai Anh",
+				Role:        "TEACHER",
+			},
 		}
 		repository := &fakeContentRepository{users: wantUsers, usersTotal: 12}
 		service := NewContentService(repository)
@@ -208,7 +229,12 @@ func TestContentServiceListsUsersAndTopicsThroughRepository(t *testing.T) {
 		t.Parallel()
 
 		wantTopics := []repositories.Topic{
-			{ID: 3, Slug: "hoa-binh", Name: "Hòa bình", Aliases: []string{"peace"}},
+			{
+				ID:      contentServiceTopicID,
+				Slug:    "hoa-binh",
+				Name:    "Hòa bình",
+				Aliases: []string{"peace"},
+			},
 		}
 		repository := &fakeContentRepository{topics: wantTopics, topicsTotal: 7}
 		service := NewContentService(repository)
@@ -231,10 +257,10 @@ func TestContentServiceListsUsersAndTopicsThroughRepository(t *testing.T) {
 func TestContentServiceListPostsValidatesViewerAndTopicBeforeListing(t *testing.T) {
 	t.Parallel()
 
-	topicID := int64(9)
+	topicID := contentServiceTopicID
 	wantPosts := []repositories.Post{
 		{
-			ID:               21,
+			ID:               contentServicePostID,
 			Title:            "Thành phố xanh",
 			ViewerHasReacted: true,
 			CreatedAt:        time.Date(2026, 7, 24, 8, 30, 0, 0, time.FixedZone("ICT", 7*60*60)),
@@ -243,47 +269,47 @@ func TestContentServiceListPostsValidatesViewerAndTopicBeforeListing(t *testing.
 
 	tests := []struct {
 		name                    string
-		viewerID                int64
-		topicID                 *int64
-		usersByID               map[int64]bool
-		topicsByID              map[int64]bool
+		viewerID                string
+		topicID                 *string
+		usersByID               map[string]bool
+		topicsByID              map[string]bool
 		wantErr                 error
-		wantTopicChecks         []int64
+		wantTopicChecks         []string
 		wantRepositoryListCalls int
 	}{
 		{
 			name:                    "unknown demo user",
-			viewerID:                404,
+			viewerID:                contentServiceUnknownUserID,
 			topicID:                 &topicID,
-			usersByID:               map[int64]bool{1: true},
-			topicsByID:              map[int64]bool{topicID: true},
+			usersByID:               map[string]bool{contentServiceUserID: true},
+			topicsByID:              map[string]bool{topicID: true},
 			wantErr:                 ErrDemoUserNotFound,
 			wantRepositoryListCalls: 0,
 		},
 		{
 			name:                    "unknown topic filter",
-			viewerID:                1,
+			viewerID:                contentServiceUserID,
 			topicID:                 &topicID,
-			usersByID:               map[int64]bool{1: true},
-			topicsByID:              map[int64]bool{},
+			usersByID:               map[string]bool{contentServiceUserID: true},
+			topicsByID:              map[string]bool{},
 			wantErr:                 ErrNotFound,
-			wantTopicChecks:         []int64{topicID},
+			wantTopicChecks:         []string{topicID},
 			wantRepositoryListCalls: 0,
 		},
 		{
 			name:                    "unfiltered feed",
-			viewerID:                1,
-			usersByID:               map[int64]bool{1: true},
-			topicsByID:              map[int64]bool{},
+			viewerID:                contentServiceUserID,
+			usersByID:               map[string]bool{contentServiceUserID: true},
+			topicsByID:              map[string]bool{},
 			wantRepositoryListCalls: 1,
 		},
 		{
 			name:                    "existing topic filter",
-			viewerID:                1,
+			viewerID:                contentServiceUserID,
 			topicID:                 &topicID,
-			usersByID:               map[int64]bool{1: true},
-			topicsByID:              map[int64]bool{topicID: true},
-			wantTopicChecks:         []int64{topicID},
+			usersByID:               map[string]bool{contentServiceUserID: true},
+			topicsByID:              map[string]bool{topicID: true},
+			wantTopicChecks:         []string{topicID},
 			wantRepositoryListCalls: 1,
 		},
 	}
@@ -327,7 +353,7 @@ func TestContentServiceListPostsValidatesViewerAndTopicBeforeListing(t *testing.
 				if request.viewerID != tt.viewerID || request.page != 2 || request.pageSize != 10 {
 					t.Fatalf("repository ListPosts request = %#v", request)
 				}
-				if !equalOptionalInt64(request.topicID, tt.topicID) {
+				if !equalOptionalString(request.topicID, tt.topicID) {
 					t.Fatalf("repository topic filter = %#v, want %#v", request.topicID, tt.topicID)
 				}
 			}
@@ -342,39 +368,48 @@ func TestContentServiceCreatePostValidatesUserAndAllTopicsBeforeCreating(t *test
 		Title:    "Mái trường trong mơ",
 		Caption:  "Bài dự thi màu nước.",
 		ImageURL: "https://images.example.com/art/school.jpg",
-		TopicIDs: []int64{2, 77, 88},
+		TopicIDs: []string{
+			contentServiceTopicID,
+			contentServiceMissingTopic1,
+			contentServiceMissingTopic2,
+		},
 	}
-	wantPost := repositories.Post{ID: 42, Title: input.Title, Caption: input.Caption, ImageURL: input.ImageURL}
+	wantPost := repositories.Post{
+		ID:       contentServiceOtherPostID,
+		Title:    input.Title,
+		Caption:  input.Caption,
+		ImageURL: input.ImageURL,
+	}
 
 	tests := []struct {
 		name                   string
-		userID                 int64
-		usersByID              map[int64]bool
-		missingTopicIDs        []int64
+		userID                 string
+		usersByID              map[string]bool
+		missingTopicIDs        []string
 		wantErr                error
 		wantMissingTopicChecks int
 		wantCreateCalls        int
 	}{
 		{
 			name:            "unknown demo user",
-			userID:          404,
-			usersByID:       map[int64]bool{1: true},
+			userID:          contentServiceUnknownUserID,
+			usersByID:       map[string]bool{contentServiceUserID: true},
 			wantErr:         ErrDemoUserNotFound,
 			wantCreateCalls: 0,
 		},
 		{
 			name:                   "one or more topics do not exist",
-			userID:                 1,
-			usersByID:              map[int64]bool{1: true},
-			missingTopicIDs:        []int64{77, 88},
+			userID:                 contentServiceUserID,
+			usersByID:              map[string]bool{contentServiceUserID: true},
+			missingTopicIDs:        []string{contentServiceMissingTopic1, contentServiceMissingTopic2},
 			wantErr:                ErrNotFound,
 			wantMissingTopicChecks: 1,
 			wantCreateCalls:        0,
 		},
 		{
 			name:                   "valid post",
-			userID:                 1,
-			usersByID:              map[int64]bool{1: true},
+			userID:                 contentServiceUserID,
+			usersByID:              map[string]bool{contentServiceUserID: true},
 			wantMissingTopicChecks: 1,
 			wantCreateCalls:        1,
 		},
@@ -430,7 +465,12 @@ func TestContentServiceCreatePostValidatesUserAndAllTopicsBeforeCreating(t *test
 			if tt.wantCreateCalls == 1 {
 				request := repository.createRequests[0]
 				if request.userID != tt.userID || !reflect.DeepEqual(request.input, input) {
-					t.Fatalf("repository CreatePost request = %#v, want user %d and input %#v", request, tt.userID, input)
+					t.Fatalf(
+						"repository CreatePost request = %#v, want user %q and input %#v",
+						request,
+						tt.userID,
+						input,
+					)
 				}
 			}
 		})
@@ -442,12 +482,12 @@ func TestContentServiceReactionMethodsValidateIdentityAndPost(t *testing.T) {
 
 	operations := []struct {
 		name     string
-		call     func(*ContentService, context.Context, int64, int64) (repositories.ReactionState, error)
+		call     func(*ContentService, context.Context, string, string) (repositories.ReactionState, error)
 		requests func(*fakeContentRepository) []contentReactionRequest
 	}{
 		{
 			name: "put",
-			call: func(service *ContentService, ctx context.Context, userID, postID int64) (repositories.ReactionState, error) {
+			call: func(service *ContentService, ctx context.Context, userID, postID string) (repositories.ReactionState, error) {
 				return service.PutReaction(ctx, userID, postID)
 			},
 			requests: func(repository *fakeContentRepository) []contentReactionRequest {
@@ -456,7 +496,7 @@ func TestContentServiceReactionMethodsValidateIdentityAndPost(t *testing.T) {
 		},
 		{
 			name: "delete",
-			call: func(service *ContentService, ctx context.Context, userID, postID int64) (repositories.ReactionState, error) {
+			call: func(service *ContentService, ctx context.Context, userID, postID string) (repositories.ReactionState, error) {
 				return service.DeleteReaction(ctx, userID, postID)
 			},
 			requests: func(repository *fakeContentRepository) []contentReactionRequest {
@@ -472,23 +512,23 @@ func TestContentServiceReactionMethodsValidateIdentityAndPost(t *testing.T) {
 
 			tests := []struct {
 				name           string
-				usersByID      map[int64]bool
-				postsByID      map[int64]bool
+				usersByID      map[string]bool
+				postsByID      map[string]bool
 				wantErr        error
-				wantPostChecks []int64
+				wantPostChecks []string
 			}{
 				{
 					name:      "rejects unknown demo user",
-					usersByID: map[int64]bool{},
-					postsByID: map[int64]bool{25: true},
+					usersByID: map[string]bool{},
+					postsByID: map[string]bool{contentServicePostID: true},
 					wantErr:   ErrDemoUserNotFound,
 				},
 				{
 					name:           "rejects unknown post",
-					usersByID:      map[int64]bool{3: true},
-					postsByID:      map[int64]bool{},
+					usersByID:      map[string]bool{contentServiceOtherUserID: true},
+					postsByID:      map[string]bool{},
 					wantErr:        ErrNotFound,
-					wantPostChecks: []int64{25},
+					wantPostChecks: []string{contentServicePostID},
 				},
 			}
 
@@ -503,7 +543,12 @@ func TestContentServiceReactionMethodsValidateIdentityAndPost(t *testing.T) {
 					}
 					service := NewContentService(repository)
 
-					_, err := operation.call(service, context.Background(), 3, 25)
+					_, err := operation.call(
+						service,
+						context.Background(),
+						contentServiceOtherUserID,
+						contentServicePostID,
+					)
 
 					if !errors.Is(err, tt.wantErr) {
 						t.Fatalf("%s reaction error = %v, want %v", operation.name, err, tt.wantErr)
@@ -527,7 +572,7 @@ func TestContentServiceReactionMethodsPreserveRepositoryIdempotence(t *testing.T
 		name      string
 		wantState repositories.ReactionState
 		configure func(*fakeContentRepository, repositories.ReactionState)
-		call      func(*ContentService, context.Context, int64, int64) (repositories.ReactionState, error)
+		call      func(*ContentService, context.Context, string, string) (repositories.ReactionState, error)
 		requests  func(*fakeContentRepository) []contentReactionRequest
 	}{
 		{
@@ -536,7 +581,7 @@ func TestContentServiceReactionMethodsPreserveRepositoryIdempotence(t *testing.T
 			configure: func(repository *fakeContentRepository, state repositories.ReactionState) {
 				repository.putReactionState = state
 			},
-			call: func(service *ContentService, ctx context.Context, userID, postID int64) (repositories.ReactionState, error) {
+			call: func(service *ContentService, ctx context.Context, userID, postID string) (repositories.ReactionState, error) {
 				return service.PutReaction(ctx, userID, postID)
 			},
 			requests: func(repository *fakeContentRepository) []contentReactionRequest {
@@ -549,7 +594,7 @@ func TestContentServiceReactionMethodsPreserveRepositoryIdempotence(t *testing.T
 			configure: func(repository *fakeContentRepository, state repositories.ReactionState) {
 				repository.deleteReactionState = state
 			},
-			call: func(service *ContentService, ctx context.Context, userID, postID int64) (repositories.ReactionState, error) {
+			call: func(service *ContentService, ctx context.Context, userID, postID string) (repositories.ReactionState, error) {
 				return service.DeleteReaction(ctx, userID, postID)
 			},
 			requests: func(repository *fakeContentRepository) []contentReactionRequest {
@@ -564,17 +609,27 @@ func TestContentServiceReactionMethodsPreserveRepositoryIdempotence(t *testing.T
 			t.Parallel()
 
 			repository := &fakeContentRepository{
-				usersByID: map[int64]bool{3: true},
-				postsByID: map[int64]bool{25: true},
+				usersByID: map[string]bool{contentServiceOtherUserID: true},
+				postsByID: map[string]bool{contentServicePostID: true},
 			}
 			operation.configure(repository, operation.wantState)
 			service := NewContentService(repository)
 
-			first, err := operation.call(service, context.Background(), 3, 25)
+			first, err := operation.call(
+				service,
+				context.Background(),
+				contentServiceOtherUserID,
+				contentServicePostID,
+			)
 			if err != nil {
 				t.Fatalf("first %s reaction returned unexpected error: %v", operation.name, err)
 			}
-			second, err := operation.call(service, context.Background(), 3, 25)
+			second, err := operation.call(
+				service,
+				context.Background(),
+				contentServiceOtherUserID,
+				contentServicePostID,
+			)
 			if err != nil {
 				t.Fatalf("second %s reaction returned unexpected error: %v", operation.name, err)
 			}
@@ -583,8 +638,8 @@ func TestContentServiceReactionMethodsPreserveRepositoryIdempotence(t *testing.T
 				t.Fatalf("%s states = (%#v, %#v), want stable repository state %#v", operation.name, first, second, operation.wantState)
 			}
 			wantRequests := []contentReactionRequest{
-				{userID: 3, postID: 25},
-				{userID: 3, postID: 25},
+				{userID: contentServiceOtherUserID, postID: contentServicePostID},
+				{userID: contentServiceOtherUserID, postID: contentServicePostID},
 			}
 			if requests := operation.requests(repository); !reflect.DeepEqual(requests, wantRequests) {
 				t.Fatalf("%s requests = %#v, want %#v", operation.name, requests, wantRequests)
@@ -597,8 +652,8 @@ func TestContentServicePropagatesRepositoryErrors(t *testing.T) {
 	t.Parallel()
 
 	repositoryErr := errors.New("content repository unavailable")
-	topicID := int64(9)
-	input := repositories.CreatePostInput{TopicIDs: []int64{topicID}}
+	topicID := contentServiceTopicID
+	input := repositories.CreatePostInput{TopicIDs: []string{topicID}}
 
 	tests := []struct {
 		name string
@@ -627,79 +682,109 @@ func TestContentServicePropagatesRepositoryErrors(t *testing.T) {
 			run: func(repository *fakeContentRepository) error {
 				repository.userExistsErr = repositoryErr
 				service := NewContentService(repository)
-				_, _, err := service.ListPosts(context.Background(), 1, 1, 10, nil)
+				_, _, err := service.ListPosts(
+					context.Background(),
+					contentServiceUserID,
+					1,
+					10,
+					nil,
+				)
 				return err
 			},
 		},
 		{
 			name: "list posts topic check",
 			run: func(repository *fakeContentRepository) error {
-				repository.usersByID = map[int64]bool{1: true}
+				repository.usersByID = map[string]bool{contentServiceUserID: true}
 				repository.topicExistsErr = repositoryErr
 				service := NewContentService(repository)
-				_, _, err := service.ListPosts(context.Background(), 1, 1, 10, &topicID)
+				_, _, err := service.ListPosts(
+					context.Background(),
+					contentServiceUserID,
+					1,
+					10,
+					&topicID,
+				)
 				return err
 			},
 		},
 		{
 			name: "list posts query",
 			run: func(repository *fakeContentRepository) error {
-				repository.usersByID = map[int64]bool{1: true}
+				repository.usersByID = map[string]bool{contentServiceUserID: true}
 				repository.listPostsErr = repositoryErr
 				service := NewContentService(repository)
-				_, _, err := service.ListPosts(context.Background(), 1, 1, 10, nil)
+				_, _, err := service.ListPosts(
+					context.Background(),
+					contentServiceUserID,
+					1,
+					10,
+					nil,
+				)
 				return err
 			},
 		},
 		{
 			name: "create post missing topic query",
 			run: func(repository *fakeContentRepository) error {
-				repository.usersByID = map[int64]bool{1: true}
+				repository.usersByID = map[string]bool{contentServiceUserID: true}
 				repository.missingTopicsErr = repositoryErr
 				service := NewContentService(repository)
-				_, err := service.CreatePost(context.Background(), 1, input)
+				_, err := service.CreatePost(context.Background(), contentServiceUserID, input)
 				return err
 			},
 		},
 		{
 			name: "create post write",
 			run: func(repository *fakeContentRepository) error {
-				repository.usersByID = map[int64]bool{1: true}
+				repository.usersByID = map[string]bool{contentServiceUserID: true}
 				repository.createPostErr = repositoryErr
 				service := NewContentService(repository)
-				_, err := service.CreatePost(context.Background(), 1, input)
+				_, err := service.CreatePost(context.Background(), contentServiceUserID, input)
 				return err
 			},
 		},
 		{
 			name: "put reaction post check",
 			run: func(repository *fakeContentRepository) error {
-				repository.usersByID = map[int64]bool{1: true}
+				repository.usersByID = map[string]bool{contentServiceUserID: true}
 				repository.postExistsErr = repositoryErr
 				service := NewContentService(repository)
-				_, err := service.PutReaction(context.Background(), 1, 5)
+				_, err := service.PutReaction(
+					context.Background(),
+					contentServiceUserID,
+					contentServicePostID,
+				)
 				return err
 			},
 		},
 		{
 			name: "put reaction write",
 			run: func(repository *fakeContentRepository) error {
-				repository.usersByID = map[int64]bool{1: true}
-				repository.postsByID = map[int64]bool{5: true}
+				repository.usersByID = map[string]bool{contentServiceUserID: true}
+				repository.postsByID = map[string]bool{contentServicePostID: true}
 				repository.putReactionErr = repositoryErr
 				service := NewContentService(repository)
-				_, err := service.PutReaction(context.Background(), 1, 5)
+				_, err := service.PutReaction(
+					context.Background(),
+					contentServiceUserID,
+					contentServicePostID,
+				)
 				return err
 			},
 		},
 		{
 			name: "delete reaction write",
 			run: func(repository *fakeContentRepository) error {
-				repository.usersByID = map[int64]bool{1: true}
-				repository.postsByID = map[int64]bool{5: true}
+				repository.usersByID = map[string]bool{contentServiceUserID: true}
+				repository.postsByID = map[string]bool{contentServicePostID: true}
 				repository.deleteReactionErr = repositoryErr
 				service := NewContentService(repository)
-				_, err := service.DeleteReaction(context.Background(), 1, 5)
+				_, err := service.DeleteReaction(
+					context.Background(),
+					contentServiceUserID,
+					contentServicePostID,
+				)
 				return err
 			},
 		},
@@ -719,7 +804,7 @@ func TestContentServicePropagatesRepositoryErrors(t *testing.T) {
 	}
 }
 
-func equalOptionalInt64(left, right *int64) bool {
+func equalOptionalString(left, right *string) bool {
 	if left == nil || right == nil {
 		return left == nil && right == nil
 	}

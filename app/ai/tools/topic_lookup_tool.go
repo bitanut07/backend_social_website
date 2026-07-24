@@ -77,14 +77,14 @@ func (t *TopicLookupTool) Execute(
 	result, err := json.Marshal(struct {
 		Found bool `json:"found"`
 		Topic struct {
-			ID   uint64 `json:"id"`
+			ID   string `json:"id"`
 			Slug string `json:"slug"`
 			Name string `json:"name"`
 		} `json:"topic"`
 	}{
 		Found: true,
 		Topic: struct {
-			ID   uint64 `json:"id"`
+			ID   string `json:"id"`
 			Slug string `json:"slug"`
 			Name string `json:"name"`
 		}{

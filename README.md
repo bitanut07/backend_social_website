@@ -26,7 +26,9 @@ thông báo realtime hay kiến trúc microservice.
 - OpenAI API key chỉ cần khi muốn bật adapter AI tùy chọn.
 
 Backend này dùng PostgreSQL 17; cấu hình, migration, Docker Compose và
-`sql.sql` đều thống nhất với PostgreSQL.
+`sql.sql` đều thống nhất với PostgreSQL. Khóa chính và khóa ngoại của tài nguyên
+dùng kiểu `UUID`; API biểu diễn chúng bằng chuỗi UUID, còn số trang, tổng số phần
+tử và số reaction vẫn là số.
 
 ## Chạy nhanh với `sql.sql`
 
@@ -47,10 +49,11 @@ Nếu database đã tồn tại, bỏ qua lệnh `createdb`. Lệnh `key:generat
 `sql.sql` là SQL PostgreSQL thuần, không chứa lệnh meta của `psql` và không tự
 tạo hoặc đổi database. File tạo schema, bảng, index, trigger và dữ liệu mẫu
 trong **database đang được kết nối**. Vì vậy phải tạo rồi chọn
-`artly_social` trước khi chạy file. Script dùng `IF NOT EXISTS` và
-`ON CONFLICT` nên có thể chạy lại an toàn. Mặc định các bảng nằm trong schema
-`public`; nếu dùng schema khác, hãy tạo schema đó trước và chạy Goravel migration
-thay cho `sql.sql`.
+`artly_social` trước khi chạy file. Script dùng `IF NOT EXISTS` và `ON CONFLICT`
+nên có thể chạy lại trên schema UUID do chính file này tạo. Script **không tự
+xóa bảng và không chuyển schema BIGINT cũ sang UUID**. Mặc định các bảng nằm
+trong schema `public`; nếu dùng schema khác, hãy tạo schema đó trước và chạy
+Goravel migration thay cho `sql.sql`.
 
 Cấu hình mẫu dùng tài khoản PostgreSQL `postgres` và để trống mật khẩu để người
 dùng điền theo server local. Nếu PostgreSQL trên máy dùng thông tin khác, thay
@@ -83,7 +86,44 @@ Không dán lệnh shell `createdb` hoặc `psql` vào Query Editor.
 Với **Supabase**, project đã có sẵn database và schema `public`, nên không cần
 và không được chạy `createdb`/`psql` trong SQL Editor. Mở **SQL Editor** của
 đúng project, tạo query mới, dán toàn bộ nội dung `sql.sql` rồi chọn **Run**.
-Các bảng và dữ liệu mẫu sẽ được tạo trong schema `public` của project đó.
+Các bảng và dữ liệu mẫu UUID sẽ được tạo trong schema `public` của project đó.
+
+#### Reset bản demo BIGINT cũ trên Supabase
+
+Đổi ID số sang UUID là breaking change. Nếu project đã từng chạy bản `sql.sql`
+dùng `BIGINT`, chạy lại file mới sẽ không sửa kiểu cột vì `CREATE TABLE IF NOT
+EXISTS` giữ nguyên bảng cũ. Preflight trong file sẽ dừng sớm và báo bảng chưa
+dùng UUID; kiểm tra thủ công bằng truy vấn sau:
+
+```sql
+SELECT data_type
+FROM information_schema.columns
+WHERE table_schema = 'public'
+  AND table_name = 'users'
+  AND column_name = 'id';
+```
+
+Kết quả đúng cho schema hiện tại là `uuid`. Nếu kết quả là `bigint`, trước tiên
+hãy sao lưu hoặc export mọi dữ liệu cần giữ và xác nhận đang mở đúng Supabase
+project. Với database chỉ chứa dữ liệu demo có thể reset đúng các bảng Artly
+bằng SQL sau; thao tác này xóa toàn bộ bài viết, reaction và tin nhắn hiện có:
+
+```sql
+BEGIN;
+DROP TABLE IF EXISTS public.messages;
+DROP TABLE IF EXISTS public.reactions;
+DROP TABLE IF EXISTS public.post_topics;
+DROP TABLE IF EXISTS public.posts;
+DROP TABLE IF EXISTS public.topic_aliases;
+DROP TABLE IF EXISTS public.topics;
+DROP TABLE IF EXISTS public.users;
+COMMIT;
+```
+
+Sau khi reset hoàn tất, dán và chạy lại toàn bộ `sql.sql`. Không drop schema
+`public` vì schema này có thể chứa đối tượng khác của project. Nếu cần giữ dữ
+liệu thật, không dùng đoạn reset trên; hãy xây dựng migration ánh xạ ID sau khi
+đã backup và kiểm thử trên một project tạm.
 
 Kiểm tra dịch vụ:
 
@@ -109,8 +149,14 @@ go run . artisan migrate
 
 Nếu database đã tồn tại, bỏ qua lệnh `createdb`. Migration chỉ tạo cấu trúc
 database. Cần tự nạp dữ liệu hoặc chạy `sql.sql` sau đó nếu muốn dùng bộ dữ liệu
-mẫu; file SQL dùng `CREATE TABLE IF NOT EXISTS` và `ON CONFLICT` nên không xóa
-dữ liệu đang có.
+mẫu; file SQL không xóa dữ liệu đang có nhưng chỉ tương thích với schema UUID,
+không tự nâng cấp bảng BIGINT cũ.
+
+Migration `20260724000002_enforce_artly_uuid_schema` bảo đảm project đã ghi nhận
+migration cũ vẫn kiểm tra thay đổi UUID. Nếu phát hiện cột khóa kiểu cũ,
+`artisan migrate` sẽ dừng với hướng dẫn backup/reset. Sau khi reset các bảng
+demo theo mục Supabase ở trên, chạy lại `artisan migrate`; migration tương thích
+sẽ tạo lại schema UUID ngay cả khi ledger vẫn giữ migration `000001`.
 
 ### Chạy bằng Docker Compose (tùy chọn)
 
@@ -184,15 +230,20 @@ khi khởi tạo.
 
 | ID dùng cho `X-User-ID` | Tài khoản | Tên hiển thị | Vai trò |
 | --- | --- | --- | --- |
-| `1` | `minh.an` | Trần Minh An | `STUDENT` |
-| `2` | `co.lan` | Cô Nguyễn Hoài Lan | `TEACHER` |
-| `3` | `phuong.thao` | Nguyễn Phương Thảo | `STUDENT` |
+| `00000000-0000-4000-8000-000000000001` | `minh.an` | Trần Minh An | `STUDENT` |
+| `00000000-0000-4000-8000-000000000002` | `co.lan` | Cô Nguyễn Hoài Lan | `TEACHER` |
+| `00000000-0000-4000-8000-000000000003` | `phuong.thao` | Nguyễn Phương Thảo | `STUDENT` |
 
 Seed có sáu chủ đề (Phong cảnh, Chân dung, Môi trường, Hòa bình, Di sản văn hóa
 và Ước mơ), 12 alias, năm bài đăng (“Mầm xanh tương lai”, “Hòa bình trong em”,
 “Di sản quê em”, “Chân dung người truyền cảm hứng” và “Thành phố trên mây”),
 sáu reaction và bốn tin nhắn. Endpoint `GET /api/v1/users` vẫn là nguồn chính
 xác để lấy ID dùng cho `X-User-ID` nếu dữ liệu trên máy đã được thay đổi.
+
+Seed dùng UUID cố định để ví dụ và test có thể lặp lại: user bắt đầu bằng
+`00000000`, topic bằng `10000000`, post bằng `20000000` và message bằng
+`50000000`. ID tạo mới dùng `gen_random_uuid()`. Client phải giữ ID dưới dạng
+chuỗi opaque, không ép sang số hoặc suy luận thứ tự từ UUID.
 
 ```bash
 curl "http://127.0.0.1:3000/api/v1/users?page=1&pageSize=20"
@@ -226,12 +277,12 @@ Hợp đồng đầy đủ, schema request/response và ví dụ nằm tại
 | `POST` | `/api/v1/messages` | Có | Gửi tin nhắn trực tiếp. |
 | `POST` | `/api/v1/assistant/questions` | Có | Đếm bài viết theo chủ đề. |
 
-Ví dụ hỏi trợ lý với tài khoản mẫu có ID `1`:
+Ví dụ hỏi trợ lý với tài khoản mẫu Minh An:
 
 ```bash
 curl -X POST http://127.0.0.1:3000/api/v1/assistant/questions \
   -H "Content-Type: application/json" \
-  -H "X-User-ID: 1" \
+  -H "X-User-ID: 00000000-0000-4000-8000-000000000001" \
   -d '{"question":"Có bao nhiêu bài về chủ đề phong cảnh?"}'
 ```
 

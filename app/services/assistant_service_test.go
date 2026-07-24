@@ -9,6 +9,13 @@ import (
 	"goravel/app/repositories"
 )
 
+const (
+	assistantServiceTestUserID           = "00000000-0000-4000-8000-000000000001"
+	assistantServiceTestUnknownUserID    = "00000000-0000-4000-8000-000000000099"
+	assistantServiceTestLandscapeTopicID = "10000000-0000-4000-8000-000000000001"
+	assistantServiceTestPeaceTopicID     = "10000000-0000-4000-8000-000000000004"
+)
+
 type assistantRepositoryFake struct {
 	userExists       bool
 	userExistsErr    error
@@ -19,10 +26,10 @@ type assistantRepositoryFake struct {
 	countErr         error
 	resolveTopicFunc func(context.Context, string) (repositories.AssistantTopic, bool, error)
 	resolvedValues   []string
-	countedTopicIDs  []uint64
+	countedTopicIDs  []string
 }
 
-func (f *assistantRepositoryFake) UserExists(context.Context, uint64) (bool, error) {
+func (f *assistantRepositoryFake) UserExists(context.Context, string) (bool, error) {
 	return f.userExists, f.userExistsErr
 }
 
@@ -34,7 +41,7 @@ func (f *assistantRepositoryFake) ResolveTopic(ctx context.Context, normalized s
 	return f.resolveTopic, f.resolveFound, f.resolveErr
 }
 
-func (f *assistantRepositoryFake) CountPublishedPostsByTopic(_ context.Context, topicID uint64) (int64, error) {
+func (f *assistantRepositoryFake) CountPublishedPostsByTopic(_ context.Context, topicID string) (int64, error) {
 	f.countedTopicIDs = append(f.countedTopicIDs, topicID)
 	return f.count, f.countErr
 }
@@ -58,7 +65,7 @@ func TestAssistantServiceAnswersLocallyUsingTopicAlias(t *testing.T) {
 	repository := &assistantRepositoryFake{
 		userExists: true,
 		resolveTopic: repositories.AssistantTopic{
-			ID:      2,
+			ID:      assistantServiceTestLandscapeTopicID,
 			Slug:    "phong-canh",
 			Name:    "Phong cảnh",
 			Aliases: []string{"cảnh vật", "landscape"},
@@ -68,7 +75,11 @@ func TestAssistantServiceAnswersLocallyUsingTopicAlias(t *testing.T) {
 	}
 	service := NewAssistantService(repository, nil)
 
-	response, err := service.Ask(context.Background(), 1, "Có bao nhiêu bài nói về chủ đề cảnh vật?")
+	response, err := service.Ask(
+		context.Background(),
+		assistantServiceTestUserID,
+		"Có bao nhiêu bài nói về chủ đề cảnh vật?",
+	)
 
 	if err != nil {
 		t.Fatalf("Ask() error = %v", err)
@@ -81,13 +92,16 @@ func TestAssistantServiceAnswersLocallyUsingTopicAlias(t *testing.T) {
 	if response.Answer != "Hiện có 8 bài viết về chủ đề “Phong cảnh”." {
 		t.Fatalf("Ask() answer = %q", response.Answer)
 	}
-	if response.Result == nil || response.Result.Count != 8 || response.Result.Topic.ID != 2 {
+	if response.Result == nil ||
+		response.Result.Count != 8 ||
+		response.Result.Topic.ID != assistantServiceTestLandscapeTopicID {
 		t.Fatalf("Ask() result = %#v", response.Result)
 	}
 	if len(repository.resolvedValues) != 1 || repository.resolvedValues[0] != "canh vat" {
 		t.Fatalf("ResolveTopic() inputs = %#v", repository.resolvedValues)
 	}
-	if len(repository.countedTopicIDs) != 1 || repository.countedTopicIDs[0] != 2 {
+	if len(repository.countedTopicIDs) != 1 ||
+		repository.countedTopicIDs[0] != assistantServiceTestLandscapeTopicID {
 		t.Fatalf("CountPublishedPostsByTopic() inputs = %#v", repository.countedTopicIDs)
 	}
 }
@@ -99,7 +113,11 @@ func TestAssistantServiceRequestsClarificationForUnclearQuestion(t *testing.T) {
 	extractor := &topicExtractorFake{candidate: "phong cảnh"}
 	service := NewAssistantService(repository, extractor)
 
-	response, err := service.Ask(context.Background(), 1, "Xin chào, hôm nay bạn khỏe không?")
+	response, err := service.Ask(
+		context.Background(),
+		assistantServiceTestUserID,
+		"Xin chào, hôm nay bạn khỏe không?",
+	)
 
 	if err != nil {
 		t.Fatalf("Ask() error = %v", err)
@@ -129,7 +147,11 @@ func TestAssistantServiceRequestsClarificationForUnknownTopic(t *testing.T) {
 	repository := &assistantRepositoryFake{userExists: true}
 	service := NewAssistantService(repository, nil)
 
-	response, err := service.Ask(context.Background(), 1, "Đếm bài về chủ đề không tồn tại")
+	response, err := service.Ask(
+		context.Background(),
+		assistantServiceTestUserID,
+		"Đếm bài về chủ đề không tồn tại",
+	)
 
 	if err != nil {
 		t.Fatalf("Ask() error = %v", err)
@@ -145,7 +167,7 @@ func TestAssistantServiceUsesOpenAIExtractorWhenItResolvesAnAllowedTopic(t *test
 	repository := &assistantRepositoryFake{
 		userExists: true,
 		resolveTopic: repositories.AssistantTopic{
-			ID:   3,
+			ID:   assistantServiceTestPeaceTopicID,
 			Slug: "hoa-binh",
 			Name: "Hòa bình",
 		},
@@ -157,7 +179,7 @@ func TestAssistantServiceUsesOpenAIExtractorWhenItResolvesAnAllowedTopic(t *test
 
 	response, err := service.Ask(
 		context.Background(),
-		1,
+		assistantServiceTestUserID,
 		"Có bao nhiêu bài về chủ đề “Hòa bình”? email hoc-sinh@example.com",
 	)
 
@@ -185,7 +207,7 @@ func TestAssistantServiceFallsBackToLocalParserOnOpenAIError(t *testing.T) {
 	repository := &assistantRepositoryFake{
 		userExists: true,
 		resolveTopic: repositories.AssistantTopic{
-			ID:   2,
+			ID:   assistantServiceTestLandscapeTopicID,
 			Slug: "phong-canh",
 			Name: "Phong cảnh",
 		},
@@ -195,7 +217,11 @@ func TestAssistantServiceFallsBackToLocalParserOnOpenAIError(t *testing.T) {
 	extractor := &topicExtractorFake{err: errors.New("provider unavailable")}
 	service := NewAssistantService(repository, extractor)
 
-	response, err := service.Ask(context.Background(), 1, "Có bao nhiêu bài về phong cảnh?")
+	response, err := service.Ask(
+		context.Background(),
+		assistantServiceTestUserID,
+		"Có bao nhiêu bài về phong cảnh?",
+	)
 
 	if err != nil {
 		t.Fatalf("Ask() error = %v", err)
@@ -214,7 +240,7 @@ func TestAssistantServiceKeepsLocalTopicWhenOpenAIReturnsAnotherAllowedTopic(t *
 	repository := &assistantRepositoryFake{
 		userExists: true,
 		resolveTopic: repositories.AssistantTopic{
-			ID:   2,
+			ID:   assistantServiceTestLandscapeTopicID,
 			Slug: "phong-canh",
 			Name: "Phong cảnh",
 		},
@@ -228,19 +254,23 @@ func TestAssistantServiceKeepsLocalTopicWhenOpenAIReturnsAnotherAllowedTopic(t *
 		resolveCalls++
 		if resolveCalls == 1 {
 			return repositories.AssistantTopic{
-				ID:   2,
+				ID:   assistantServiceTestLandscapeTopicID,
 				Slug: "phong-canh",
 				Name: "Phong cảnh",
 			}, true, nil
 		}
 		return repositories.AssistantTopic{
-			ID:   4,
+			ID:   assistantServiceTestPeaceTopicID,
 			Slug: "hoa-binh",
 			Name: "Hòa bình",
 		}, true, nil
 	}
 
-	response, err := service.Ask(context.Background(), 1, "Có bao nhiêu bài về phong cảnh?")
+	response, err := service.Ask(
+		context.Background(),
+		assistantServiceTestUserID,
+		"Có bao nhiêu bài về phong cảnh?",
+	)
 
 	if err != nil {
 		t.Fatalf("Ask() error = %v", err)
@@ -248,7 +278,7 @@ func TestAssistantServiceKeepsLocalTopicWhenOpenAIReturnsAnotherAllowedTopic(t *
 	if response.Provider != AssistantProviderLocal ||
 		response.Result == nil ||
 		response.Result.Count != 6 ||
-		response.Result.Topic.ID != 2 {
+		response.Result.Topic.ID != assistantServiceTestLandscapeTopicID {
 		t.Fatalf("Ask() response = %#v", response)
 	}
 	if len(repository.resolvedValues) != 2 ||
@@ -264,7 +294,11 @@ func TestAssistantServiceRejectsUnknownDemoUser(t *testing.T) {
 	repository := &assistantRepositoryFake{userExists: false}
 	service := NewAssistantService(repository, nil)
 
-	_, err := service.Ask(context.Background(), 99, "Đếm bài về phong cảnh")
+	_, err := service.Ask(
+		context.Background(),
+		assistantServiceTestUnknownUserID,
+		"Đếm bài về phong cảnh",
+	)
 
 	if !errors.Is(err, ErrDemoUserRequired) {
 		t.Fatalf("Ask() error = %v, want ErrDemoUserRequired", err)
@@ -278,7 +312,7 @@ func TestAssistantServicePropagatesCountFailure(t *testing.T) {
 	repository := &assistantRepositoryFake{
 		userExists: true,
 		resolveTopic: repositories.AssistantTopic{
-			ID:   2,
+			ID:   assistantServiceTestLandscapeTopicID,
 			Slug: "phong-canh",
 			Name: "Phong cảnh",
 		},
@@ -287,7 +321,11 @@ func TestAssistantServicePropagatesCountFailure(t *testing.T) {
 	}
 	service := NewAssistantService(repository, nil)
 
-	_, err := service.Ask(context.Background(), 1, "Đếm bài về phong cảnh")
+	_, err := service.Ask(
+		context.Background(),
+		assistantServiceTestUserID,
+		"Đếm bài về phong cảnh",
+	)
 
 	if !errors.Is(err, countFailure) {
 		t.Fatalf("Ask() error = %v, want count failure", err)
@@ -305,7 +343,7 @@ func TestAssistantResponseJSONMatchesOpenAPIShape(t *testing.T) {
 		Result: &AssistantCountResult{
 			Count: 8,
 			Topic: AssistantTopic{
-				ID:      2,
+				ID:      assistantServiceTestLandscapeTopicID,
 				Slug:    "phong-canh",
 				Name:    "Phong cảnh",
 				Aliases: []string{"cảnh vật"},
@@ -316,7 +354,7 @@ func TestAssistantResponseJSONMatchesOpenAPIShape(t *testing.T) {
 		t.Fatalf("json.Marshal(answered) error = %v", err)
 	}
 
-	wantAnswered := `{"status":"ANSWERED","intent":"COUNT_POSTS_BY_TOPIC","answer":"Hiện có 8 bài viết về chủ đề “Phong cảnh”.","provider":"LOCAL","result":{"count":8,"topic":{"id":2,"slug":"phong-canh","name":"Phong cảnh","aliases":["cảnh vật"]}}}`
+	wantAnswered := `{"status":"ANSWERED","intent":"COUNT_POSTS_BY_TOPIC","answer":"Hiện có 8 bài viết về chủ đề “Phong cảnh”.","provider":"LOCAL","result":{"count":8,"topic":{"id":"10000000-0000-4000-8000-000000000001","slug":"phong-canh","name":"Phong cảnh","aliases":["cảnh vật"]}}}`
 	if string(answered) != wantAnswered {
 		t.Fatalf("answered JSON = %s, want %s", answered, wantAnswered)
 	}

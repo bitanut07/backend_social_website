@@ -3,7 +3,7 @@ package models
 // Post is an artwork or drawing-exam submission shown in the feed.
 type Post struct {
 	BaseModel
-	UserID   uint64  `gorm:"column:user_id;not null;index" db:"user_id" json:"userId"`
+	UserID   string  `gorm:"column:user_id;type:uuid;not null;index" db:"user_id" json:"userId"`
 	Title    string  `gorm:"column:title;size:120;not null" db:"title" json:"title"`
 	Caption  string  `gorm:"column:caption;type:text;not null" db:"caption" json:"caption"`
 	ImageURL string  `gorm:"column:image_url;size:2048;not null" db:"image_url" json:"imageUrl"`

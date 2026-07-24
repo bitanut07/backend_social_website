@@ -11,8 +11,16 @@ import (
 	"goravel/app/models"
 )
 
+const (
+	messageServiceTestUserOneID      = "00000000-0000-4000-8000-000000000001"
+	messageServiceTestUserTwoID      = "00000000-0000-4000-8000-000000000002"
+	messageServiceTestUnknownUserID  = "00000000-0000-4000-8000-000000000099"
+	messageServiceTestListedMessage  = "50000000-0000-4000-8000-000000000001"
+	messageServiceTestCreatedMessage = "50000000-0000-4000-8000-000000000004"
+)
+
 type fakeMessageRepository struct {
-	users         map[uint64]bool
+	users         map[string]bool
 	userErr       error
 	messages      []models.Message
 	total         int64
@@ -22,7 +30,7 @@ type fakeMessageRepository struct {
 	listWasCalled bool
 }
 
-func (f *fakeMessageRepository) UserExists(_ context.Context, userID uint64) (bool, error) {
+func (f *fakeMessageRepository) UserExists(_ context.Context, userID string) (bool, error) {
 	if f.userErr != nil {
 		return false, f.userErr
 	}
@@ -32,8 +40,8 @@ func (f *fakeMessageRepository) UserExists(_ context.Context, userID uint64) (bo
 
 func (f *fakeMessageRepository) ListConversation(
 	_ context.Context,
-	_ uint64,
-	_ uint64,
+	_ string,
+	_ string,
 	_ int,
 	_ int,
 ) ([]models.Message, int64, error) {
@@ -43,8 +51,8 @@ func (f *fakeMessageRepository) ListConversation(
 
 func (f *fakeMessageRepository) Create(
 	_ context.Context,
-	senderID uint64,
-	receiverID uint64,
+	senderID string,
+	receiverID string,
 	body string,
 ) (models.Message, error) {
 	if f.createErr != nil {
@@ -52,7 +60,7 @@ func (f *fakeMessageRepository) Create(
 	}
 
 	message := models.Message{
-		BaseModel:  models.BaseModel{ID: 36},
+		BaseModel:  models.BaseModel{ID: messageServiceTestCreatedMessage},
 		SenderID:   senderID,
 		ReceiverID: receiverID,
 		Body:       body,
@@ -67,10 +75,18 @@ func (f *fakeMessageRepository) Create(
 func TestMessageServiceListRejectsUnknownDemoUser(t *testing.T) {
 	t.Parallel()
 
-	repository := &fakeMessageRepository{users: map[uint64]bool{2: true}}
+	repository := &fakeMessageRepository{users: map[string]bool{
+		messageServiceTestUserTwoID: true,
+	}}
 	service := NewMessageService(repository)
 
-	_, err := service.List(context.Background(), 999, 2, 1, 50)
+	_, err := service.List(
+		context.Background(),
+		messageServiceTestUnknownUserID,
+		messageServiceTestUserTwoID,
+		1,
+		50,
+	)
 
 	if !errors.Is(err, ErrDemoUserNotFound) {
 		t.Fatalf("got error %v, want ErrDemoUserNotFound", err)
@@ -83,10 +99,15 @@ func TestMessageServiceListRejectsUnknownDemoUser(t *testing.T) {
 func TestMessageServiceIdentityFailureTakesPrecedenceOverSelfMessage(t *testing.T) {
 	t.Parallel()
 
-	repository := &fakeMessageRepository{users: map[uint64]bool{}}
+	repository := &fakeMessageRepository{users: map[string]bool{}}
 	service := NewMessageService(repository)
 
-	_, err := service.Create(context.Background(), 999, 999, "Nội dung hợp lệ")
+	_, err := service.Create(
+		context.Background(),
+		messageServiceTestUnknownUserID,
+		messageServiceTestUnknownUserID,
+		"Nội dung hợp lệ",
+	)
 
 	if !errors.Is(err, ErrDemoUserNotFound) {
 		t.Fatalf("got error %v, want ErrDemoUserNotFound", err)
@@ -99,10 +120,18 @@ func TestMessageServiceIdentityFailureTakesPrecedenceOverSelfMessage(t *testing.
 func TestMessageServiceListRejectsUnknownPeer(t *testing.T) {
 	t.Parallel()
 
-	repository := &fakeMessageRepository{users: map[uint64]bool{1: true}}
+	repository := &fakeMessageRepository{users: map[string]bool{
+		messageServiceTestUserOneID: true,
+	}}
 	service := NewMessageService(repository)
 
-	_, err := service.List(context.Background(), 1, 404, 1, 50)
+	_, err := service.List(
+		context.Background(),
+		messageServiceTestUserOneID,
+		messageServiceTestUnknownUserID,
+		1,
+		50,
+	)
 
 	if !errors.Is(err, ErrMessagePeerNotFound) {
 		t.Fatalf("got error %v, want ErrMessagePeerNotFound", err)
@@ -115,10 +144,19 @@ func TestMessageServiceListRejectsUnknownPeer(t *testing.T) {
 func TestMessageServiceListReturnsAnEmptyArrayForAnEmptyConversation(t *testing.T) {
 	t.Parallel()
 
-	repository := &fakeMessageRepository{users: map[uint64]bool{1: true, 2: true}}
+	repository := &fakeMessageRepository{users: map[string]bool{
+		messageServiceTestUserOneID: true,
+		messageServiceTestUserTwoID: true,
+	}}
 	service := NewMessageService(repository)
 
-	result, err := service.List(context.Background(), 1, 2, 1, 50)
+	result, err := service.List(
+		context.Background(),
+		messageServiceTestUserOneID,
+		messageServiceTestUserTwoID,
+		1,
+		50,
+	)
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -137,28 +175,31 @@ func TestMessageServiceListMapsOnlyPublicFieldsAndRFC3339Time(t *testing.T) {
 	avatarURL := "https://images.example.com/avatars/mai.jpg"
 	createdAt := carbon.NewDateTime(carbon.Parse("2026-07-24 09:10:00", "Asia/Ho_Chi_Minh"))
 	repository := &fakeMessageRepository{
-		users: map[uint64]bool{1: true, 2: true},
+		users: map[string]bool{
+			messageServiceTestUserOneID: true,
+			messageServiceTestUserTwoID: true,
+		},
 		messages: []models.Message{
 			{
 				BaseModel: models.BaseModel{
-					ID: 35,
+					ID: messageServiceTestListedMessage,
 					Timestamps: models.Timestamps{
 						CreatedAt: createdAt,
 					},
 				},
-				SenderID:   2,
-				ReceiverID: 1,
+				SenderID:   messageServiceTestUserTwoID,
+				ReceiverID: messageServiceTestUserOneID,
 				Body:       "Em thử tăng độ tương phản ở vùng tiền cảnh nhé.",
 				IsRead:     true,
 				Sender: models.User{
-					BaseModel:   models.BaseModel{ID: 2},
+					BaseModel:   models.BaseModel{ID: messageServiceTestUserTwoID},
 					Username:    "co.mai",
 					DisplayName: "Cô Mai Anh",
 					Role:        models.UserRoleTeacher,
 					AvatarURL:   &avatarURL,
 				},
 				Receiver: models.User{
-					BaseModel:   models.BaseModel{ID: 1},
+					BaseModel:   models.BaseModel{ID: messageServiceTestUserOneID},
 					Username:    "linh.ve",
 					DisplayName: "Nguyễn Gia Linh",
 					Role:        models.UserRoleStudent,
@@ -169,13 +210,24 @@ func TestMessageServiceListMapsOnlyPublicFieldsAndRFC3339Time(t *testing.T) {
 	}
 	service := NewMessageService(repository)
 
-	result, err := service.List(context.Background(), 1, 2, 1, 50)
+	result, err := service.List(
+		context.Background(),
+		messageServiceTestUserOneID,
+		messageServiceTestUserTwoID,
+		1,
+		50,
+	)
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if result.TotalItems != 1 || len(result.Messages) != 1 {
 		t.Fatalf("unexpected result: %#v", result)
+	}
+	if result.Messages[0].ID != messageServiceTestListedMessage ||
+		result.Messages[0].Sender.ID != messageServiceTestUserTwoID ||
+		result.Messages[0].Receiver.ID != messageServiceTestUserOneID {
+		t.Fatalf("message and participant UUIDs were not mapped: %#v", result.Messages[0])
 	}
 	if result.Messages[0].CreatedAt != "2026-07-24T09:10:00+07:00" {
 		t.Fatalf("got createdAt %q", result.Messages[0].CreatedAt)
@@ -199,10 +251,17 @@ func TestMessageServiceListMapsOnlyPublicFieldsAndRFC3339Time(t *testing.T) {
 func TestMessageServiceCreateRejectsSelfMessageWithoutWriting(t *testing.T) {
 	t.Parallel()
 
-	repository := &fakeMessageRepository{users: map[uint64]bool{1: true}}
+	repository := &fakeMessageRepository{users: map[string]bool{
+		messageServiceTestUserOneID: true,
+	}}
 	service := NewMessageService(repository)
 
-	_, err := service.Create(context.Background(), 1, 1, "Tự nhắn")
+	_, err := service.Create(
+		context.Background(),
+		messageServiceTestUserOneID,
+		messageServiceTestUserOneID,
+		"Tự nhắn",
+	)
 
 	if !errors.Is(err, ErrCannotMessageSelf) {
 		t.Fatalf("got error %v, want ErrCannotMessageSelf", err)
@@ -215,10 +274,17 @@ func TestMessageServiceCreateRejectsSelfMessageWithoutWriting(t *testing.T) {
 func TestMessageServiceCreateRejectsUnknownRecipient(t *testing.T) {
 	t.Parallel()
 
-	repository := &fakeMessageRepository{users: map[uint64]bool{1: true}}
+	repository := &fakeMessageRepository{users: map[string]bool{
+		messageServiceTestUserOneID: true,
+	}}
 	service := NewMessageService(repository)
 
-	_, err := service.Create(context.Background(), 1, 404, "Xin chào")
+	_, err := service.Create(
+		context.Background(),
+		messageServiceTestUserOneID,
+		messageServiceTestUnknownUserID,
+		"Xin chào",
+	)
 
 	if !errors.Is(err, ErrMessagePeerNotFound) {
 		t.Fatalf("got error %v, want ErrMessagePeerNotFound", err)
@@ -231,10 +297,18 @@ func TestMessageServiceCreateRejectsUnknownRecipient(t *testing.T) {
 func TestMessageServiceCreatePersistsValidatedMessage(t *testing.T) {
 	t.Parallel()
 
-	repository := &fakeMessageRepository{users: map[uint64]bool{1: true, 2: true}}
+	repository := &fakeMessageRepository{users: map[string]bool{
+		messageServiceTestUserOneID: true,
+		messageServiceTestUserTwoID: true,
+	}}
 	service := NewMessageService(repository)
 
-	message, err := service.Create(context.Background(), 1, 2, "Cô xem giúp em ạ.")
+	message, err := service.Create(
+		context.Background(),
+		messageServiceTestUserOneID,
+		messageServiceTestUserTwoID,
+		"Cô xem giúp em ạ.",
+	)
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -242,10 +316,11 @@ func TestMessageServiceCreatePersistsValidatedMessage(t *testing.T) {
 	if repository.created == nil {
 		t.Fatal("expected message to be persisted")
 	}
-	if repository.created.SenderID != 1 || repository.created.ReceiverID != 2 {
+	if repository.created.SenderID != messageServiceTestUserOneID ||
+		repository.created.ReceiverID != messageServiceTestUserTwoID {
 		t.Fatalf("unexpected participants: %#v", repository.created)
 	}
-	if message.ID != 36 || message.Body != "Cô xem giúp em ạ." {
+	if message.ID != messageServiceTestCreatedMessage || message.Body != "Cô xem giúp em ạ." {
 		t.Fatalf("unexpected response message: %#v", message)
 	}
 }
@@ -255,12 +330,21 @@ func TestMessageServicePropagatesRepositoryFailure(t *testing.T) {
 
 	databaseErr := errors.New("database unavailable")
 	repository := &fakeMessageRepository{
-		users:   map[uint64]bool{1: true, 2: true},
+		users: map[string]bool{
+			messageServiceTestUserOneID: true,
+			messageServiceTestUserTwoID: true,
+		},
 		listErr: databaseErr,
 	}
 	service := NewMessageService(repository)
 
-	_, err := service.List(context.Background(), 1, 2, 1, 50)
+	_, err := service.List(
+		context.Background(),
+		messageServiceTestUserOneID,
+		messageServiceTestUserTwoID,
+		1,
+		50,
+	)
 
 	if !errors.Is(err, databaseErr) {
 		t.Fatalf("got error %v, want repository error", err)

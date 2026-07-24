@@ -7,15 +7,23 @@ import (
 	"github.com/goravel/framework/contracts/http"
 )
 
+const (
+	messageControllerTestUserOneID = "00000000-0000-4000-8000-000000000001"
+	messageControllerTestUserTwoID = "00000000-0000-4000-8000-000000000002"
+	messageControllerTestNilUUID   = "00000000-0000-0000-0000-000000000000"
+)
+
 func TestParseMessageListParamsUsesContractDefaults(t *testing.T) {
 	t.Parallel()
 
-	params, failure := parseMessageListParams(map[string]string{"peerId": "2"})
+	params, failure := parseMessageListParams(map[string]string{
+		"peerId": messageControllerTestUserTwoID,
+	})
 
 	if failure != nil {
 		t.Fatalf("unexpected failure: %#v", failure)
 	}
-	if params.PeerID != 2 || params.Page != 1 || params.PageSize != 50 {
+	if params.PeerID != messageControllerTestUserTwoID || params.Page != 1 || params.PageSize != 50 {
 		t.Fatalf("unexpected parameters: %#v", params)
 	}
 }
@@ -42,32 +50,32 @@ func TestParseMessageListParamsDistinguishesMalformedAndInvalidValues(t *testing
 			wantCode:   "BAD_REQUEST",
 		},
 		{
-			name:       "zero peer is a validation error",
-			query:      map[string]string{"peerId": "0"},
-			wantStatus: http.StatusUnprocessableEntity,
-			wantCode:   "VALIDATION_ERROR",
+			name:       "nil UUID peer is a bad request",
+			query:      map[string]string{"peerId": messageControllerTestNilUUID},
+			wantStatus: http.StatusBadRequest,
+			wantCode:   "BAD_REQUEST",
 		},
 		{
 			name:       "text page is a bad request",
-			query:      map[string]string{"peerId": "2", "page": "first"},
+			query:      map[string]string{"peerId": messageControllerTestUserTwoID, "page": "first"},
 			wantStatus: http.StatusBadRequest,
 			wantCode:   "BAD_REQUEST",
 		},
 		{
 			name:       "zero page is a validation error",
-			query:      map[string]string{"peerId": "2", "page": "0"},
+			query:      map[string]string{"peerId": messageControllerTestUserTwoID, "page": "0"},
 			wantStatus: http.StatusUnprocessableEntity,
 			wantCode:   "VALIDATION_ERROR",
 		},
 		{
 			name:       "page size over one hundred is a validation error",
-			query:      map[string]string{"peerId": "2", "pageSize": "101"},
+			query:      map[string]string{"peerId": messageControllerTestUserTwoID, "pageSize": "101"},
 			wantStatus: http.StatusUnprocessableEntity,
 			wantCode:   "VALIDATION_ERROR",
 		},
 		{
 			name:       "page above global maximum is a validation error",
-			query:      map[string]string{"peerId": "2", "page": "100001"},
+			query:      map[string]string{"peerId": messageControllerTestUserTwoID, "page": "100001"},
 			wantStatus: http.StatusUnprocessableEntity,
 			wantCode:   "VALIDATION_ERROR",
 		},
@@ -98,11 +106,11 @@ func TestDecodeCreateMessageRequestRejectsUnknownAndTrailingJSON(t *testing.T) {
 	}{
 		{
 			name: "unknown property",
-			body: `{"recipientId":2,"body":"Xin chào","html":"<b>bad</b>"}`,
+			body: `{"recipientId":"00000000-0000-4000-8000-000000000002","body":"Xin chào","html":"<b>bad</b>"}`,
 		},
 		{
 			name: "trailing JSON value",
-			body: `{"recipientId":2,"body":"Xin chào"} {}`,
+			body: `{"recipientId":"00000000-0000-4000-8000-000000000002","body":"Xin chào"} {}`,
 		},
 	}
 
@@ -122,7 +130,7 @@ func TestMessageJSONFailureDistinguishesSchemaAndSyntaxErrors(t *testing.T) {
 	t.Parallel()
 
 	_, schemaErr := decodeCreateMessageRequest(strings.NewReader(
-		`{"recipientId":"teacher","body":"Xin chào"}`,
+		`{"recipientId":2,"body":"Xin chào"}`,
 	))
 	if schemaErr == nil {
 		t.Fatal("expected schema error")
@@ -133,7 +141,7 @@ func TestMessageJSONFailureDistinguishesSchemaAndSyntaxErrors(t *testing.T) {
 	}
 
 	_, syntaxErr := decodeCreateMessageRequest(strings.NewReader(
-		`{"recipientId":2,"body":`,
+		`{"recipientId":"00000000-0000-4000-8000-000000000002","body":`,
 	))
 	if syntaxErr == nil {
 		t.Fatal("expected syntax error")
@@ -147,7 +155,7 @@ func TestMessageJSONFailureDistinguishesSchemaAndSyntaxErrors(t *testing.T) {
 func TestValidateCreateMessageRequestTrimsBodyAndCountsUnicodeCharacters(t *testing.T) {
 	t.Parallel()
 
-	recipientID := uint64(2)
+	recipientID := messageControllerTestUserTwoID
 	body := "  Cô xem giúp em ạ.  "
 	input := createMessageRequest{RecipientID: &recipientID, Body: &body}
 
@@ -156,7 +164,8 @@ func TestValidateCreateMessageRequestTrimsBodyAndCountsUnicodeCharacters(t *test
 	if failure != nil {
 		t.Fatalf("unexpected failure: %#v", failure)
 	}
-	if validated.Body != "Cô xem giúp em ạ." || validated.RecipientID != 2 {
+	if validated.Body != "Cô xem giúp em ạ." ||
+		validated.RecipientID != messageControllerTestUserTwoID {
 		t.Fatalf("unexpected validated request: %#v", validated)
 	}
 
@@ -181,10 +190,32 @@ func TestValidateCreateMessageRequestRejectsMissingFields(t *testing.T) {
 	}
 }
 
+func TestValidateCreateMessageRequestRejectsInvalidAndNilRecipientUUIDs(t *testing.T) {
+	t.Parallel()
+
+	body := "Xin chào"
+	for _, recipientID := range []string{"teacher", messageControllerTestNilUUID} {
+		recipientID := recipientID
+		t.Run(recipientID, func(t *testing.T) {
+			t.Parallel()
+
+			input := createMessageRequest{RecipientID: &recipientID, Body: &body}
+			_, failure := validateCreateMessageRequest(input)
+			if failure == nil {
+				t.Fatal("invalid recipient UUID must be rejected")
+			}
+			if failure.status != http.StatusUnprocessableEntity ||
+				failure.code != "VALIDATION_ERROR" {
+				t.Fatalf("unexpected failure: %#v", failure)
+			}
+		})
+	}
+}
+
 func TestValidateCreateMessageRequestLeavesParticipantRulesToTheService(t *testing.T) {
 	t.Parallel()
 
-	recipientID := uint64(1)
+	recipientID := messageControllerTestUserOneID
 	body := "Nội dung hợp lệ về cấu trúc"
 	input := createMessageRequest{RecipientID: &recipientID, Body: &body}
 
@@ -193,7 +224,7 @@ func TestValidateCreateMessageRequestLeavesParticipantRulesToTheService(t *testi
 	if failure != nil {
 		t.Fatalf("participant rule should be evaluated after current-user existence: %#v", failure)
 	}
-	if validated.RecipientID != 1 {
+	if validated.RecipientID != messageControllerTestUserOneID {
 		t.Fatalf("unexpected recipient: %#v", validated)
 	}
 }

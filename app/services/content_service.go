@@ -14,7 +14,7 @@ var (
 )
 
 type MissingTopicsError struct {
-	TopicIDs []int64
+	TopicIDs []string
 }
 
 func (e *MissingTopicsError) Error() string {
@@ -49,9 +49,9 @@ func (s *ContentService) ListTopics(
 
 func (s *ContentService) ListPosts(
 	ctx context.Context,
-	viewerID int64,
+	viewerID string,
 	page, pageSize int,
-	topicID *int64,
+	topicID *string,
 ) ([]repositories.Post, int64, error) {
 	if err := s.requireDemoUser(ctx, viewerID); err != nil {
 		return nil, 0, err
@@ -72,7 +72,7 @@ func (s *ContentService) ListPosts(
 
 func (s *ContentService) CreatePost(
 	ctx context.Context,
-	userID int64,
+	userID string,
 	input repositories.CreatePostInput,
 ) (repositories.Post, error) {
 	if err := s.requireDemoUser(ctx, userID); err != nil {
@@ -92,7 +92,7 @@ func (s *ContentService) CreatePost(
 
 func (s *ContentService) PutReaction(
 	ctx context.Context,
-	userID, postID int64,
+	userID, postID string,
 ) (repositories.ReactionState, error) {
 	if err := s.requireDemoUser(ctx, userID); err != nil {
 		return repositories.ReactionState{}, err
@@ -106,7 +106,7 @@ func (s *ContentService) PutReaction(
 
 func (s *ContentService) DeleteReaction(
 	ctx context.Context,
-	userID, postID int64,
+	userID, postID string,
 ) (repositories.ReactionState, error) {
 	if err := s.requireDemoUser(ctx, userID); err != nil {
 		return repositories.ReactionState{}, err
@@ -118,7 +118,7 @@ func (s *ContentService) DeleteReaction(
 	return s.repository.DeleteReaction(ctx, userID, postID)
 }
 
-func (s *ContentService) requireDemoUser(ctx context.Context, userID int64) error {
+func (s *ContentService) requireDemoUser(ctx context.Context, userID string) error {
 	exists, err := s.repository.UserExists(ctx, userID)
 	if err != nil {
 		return err
@@ -130,7 +130,7 @@ func (s *ContentService) requireDemoUser(ctx context.Context, userID int64) erro
 	return nil
 }
 
-func (s *ContentService) requirePost(ctx context.Context, postID int64) error {
+func (s *ContentService) requirePost(ctx context.Context, postID string) error {
 	exists, err := s.repository.PostExists(ctx, postID)
 	if err != nil {
 		return err

@@ -26,7 +26,7 @@ const insertPostReturningIDSQL = `INSERT INTO posts (
 RETURNING id`
 
 type User struct {
-	ID          int64   `json:"id"`
+	ID          string  `json:"id"`
 	Username    string  `json:"username"`
 	DisplayName string  `json:"displayName"`
 	Role        string  `json:"role"`
@@ -34,14 +34,14 @@ type User struct {
 }
 
 type Topic struct {
-	ID      int64    `json:"id"`
+	ID      string   `json:"id"`
 	Slug    string   `json:"slug"`
 	Name    string   `json:"name"`
 	Aliases []string `json:"aliases"`
 }
 
 type Post struct {
-	ID               int64     `json:"id"`
+	ID               string    `json:"id"`
 	Title            string    `json:"title"`
 	Caption          string    `json:"caption"`
 	ImageURL         string    `json:"imageUrl"`
@@ -58,7 +58,7 @@ type CreatePostInput struct {
 	Caption  string
 	ImageURL string
 	ExamName *string
-	TopicIDs []int64
+	TopicIDs []string
 }
 
 type ReactionState struct {
@@ -69,19 +69,19 @@ type ReactionState struct {
 type ContentRepository interface {
 	ListUsers(ctx context.Context, page, pageSize int) ([]User, int64, error)
 	ListTopics(ctx context.Context, page, pageSize int) ([]Topic, int64, error)
-	UserExists(ctx context.Context, userID int64) (bool, error)
-	TopicExists(ctx context.Context, topicID int64) (bool, error)
-	MissingTopicIDs(ctx context.Context, topicIDs []int64) ([]int64, error)
-	PostExists(ctx context.Context, postID int64) (bool, error)
+	UserExists(ctx context.Context, userID string) (bool, error)
+	TopicExists(ctx context.Context, topicID string) (bool, error)
+	MissingTopicIDs(ctx context.Context, topicIDs []string) ([]string, error)
+	PostExists(ctx context.Context, postID string) (bool, error)
 	ListPosts(
 		ctx context.Context,
-		viewerID int64,
+		viewerID string,
 		page, pageSize int,
-		topicID *int64,
+		topicID *string,
 	) ([]Post, int64, error)
-	CreatePost(ctx context.Context, userID int64, input CreatePostInput) (Post, error)
-	PutReaction(ctx context.Context, userID, postID int64) (ReactionState, error)
-	DeleteReaction(ctx context.Context, userID, postID int64) (ReactionState, error)
+	CreatePost(ctx context.Context, userID string, input CreatePostInput) (Post, error)
+	PutReaction(ctx context.Context, userID, postID string) (ReactionState, error)
+	DeleteReaction(ctx context.Context, userID, postID string) (ReactionState, error)
 }
 
 type GoravelContentRepository struct {
@@ -145,14 +145,14 @@ func (r *GoravelContentRepository) ListTopics(
 	return topics, total, nil
 }
 
-func (r *GoravelContentRepository) UserExists(ctx context.Context, userID int64) (bool, error) {
+func (r *GoravelContentRepository) UserExists(ctx context.Context, userID string) (bool, error) {
 	return r.database.WithContext(ctx).
 		Table("users").
 		Where("id", userID).
 		Exists()
 }
 
-func (r *GoravelContentRepository) TopicExists(ctx context.Context, topicID int64) (bool, error) {
+func (r *GoravelContentRepository) TopicExists(ctx context.Context, topicID string) (bool, error) {
 	return r.database.WithContext(ctx).
 		Table("topics").
 		Where("id", topicID).
@@ -161,27 +161,27 @@ func (r *GoravelContentRepository) TopicExists(ctx context.Context, topicID int6
 
 func (r *GoravelContentRepository) MissingTopicIDs(
 	ctx context.Context,
-	topicIDs []int64,
-) ([]int64, error) {
+	topicIDs []string,
+) ([]string, error) {
 	if len(topicIDs) == 0 {
-		return []int64{}, nil
+		return []string{}, nil
 	}
 
-	var existing []int64
+	var existing []string
 	err := r.database.WithContext(ctx).
 		Table("topics").
-		WhereIn("id", int64Values(topicIDs)).
+		WhereIn("id", stringValues(topicIDs)).
 		Pluck("id", &existing)
 	if err != nil {
 		return nil, err
 	}
 
-	existingSet := make(map[int64]struct{}, len(existing))
+	existingSet := make(map[string]struct{}, len(existing))
 	for _, id := range existing {
 		existingSet[id] = struct{}{}
 	}
 
-	missing := make([]int64, 0)
+	missing := make([]string, 0)
 	for _, id := range topicIDs {
 		if _, ok := existingSet[id]; !ok {
 			missing = append(missing, id)
@@ -191,15 +191,15 @@ func (r *GoravelContentRepository) MissingTopicIDs(
 	return missing, nil
 }
 
-func (r *GoravelContentRepository) PostExists(ctx context.Context, postID int64) (bool, error) {
+func (r *GoravelContentRepository) PostExists(ctx context.Context, postID string) (bool, error) {
 	return publishedPostExists(r.database.WithContext(ctx), postID)
 }
 
 func (r *GoravelContentRepository) ListPosts(
 	ctx context.Context,
-	viewerID int64,
+	viewerID string,
 	page, pageSize int,
-	topicID *int64,
+	topicID *string,
 ) ([]Post, int64, error) {
 	database := r.database.WithContext(ctx)
 	query := postBaseQuery(database).
@@ -228,7 +228,7 @@ func (r *GoravelContentRepository) ListPosts(
 
 func (r *GoravelContentRepository) CreatePost(
 	ctx context.Context,
-	userID int64,
+	userID string,
 	input CreatePostInput,
 ) (Post, error) {
 	var created Post
@@ -260,7 +260,7 @@ func (r *GoravelContentRepository) CreatePost(
 	return created, nil
 }
 
-func insertPostReturningID(source db.Tx, userID int64, input CreatePostInput) (int64, error) {
+func insertPostReturningID(source db.Tx, userID string, input CreatePostInput) (string, error) {
 	row := insertedPostIDRow{}
 	err := source.Select(
 		&row,
@@ -273,7 +273,7 @@ func insertPostReturningID(source db.Tx, userID int64, input CreatePostInput) (i
 		models.PostStatusPublished,
 	)
 	if err != nil {
-		return 0, err
+		return "", err
 	}
 
 	return row.ID, nil
@@ -281,7 +281,7 @@ func insertPostReturningID(source db.Tx, userID int64, input CreatePostInput) (i
 
 func (r *GoravelContentRepository) PutReaction(
 	ctx context.Context,
-	userID, postID int64,
+	userID, postID string,
 ) (ReactionState, error) {
 	state := ReactionState{}
 
@@ -320,7 +320,7 @@ func (r *GoravelContentRepository) PutReaction(
 
 func (r *GoravelContentRepository) DeleteReaction(
 	ctx context.Context,
-	userID, postID int64,
+	userID, postID string,
 ) (ReactionState, error) {
 	state := ReactionState{}
 
@@ -362,7 +362,7 @@ func (r *GoravelContentRepository) DeleteReaction(
 }
 
 type userRow struct {
-	ID          int64   `db:"id"`
+	ID          string  `db:"id"`
 	Username    string  `db:"username"`
 	DisplayName string  `db:"display_name"`
 	Role        string  `db:"role"`
@@ -370,7 +370,7 @@ type userRow struct {
 }
 
 type insertedPostIDRow struct {
-	ID int64 `db:"id"`
+	ID string `db:"id"`
 }
 
 func (r userRow) toUser() User {
@@ -384,24 +384,24 @@ func (r userRow) toUser() User {
 }
 
 type topicRow struct {
-	ID   int64  `db:"id"`
+	ID   string `db:"id"`
 	Slug string `db:"slug"`
 	Name string `db:"name"`
 }
 
 type aliasRow struct {
-	TopicID int64  `db:"topic_id"`
+	TopicID string `db:"topic_id"`
 	Alias   string `db:"alias"`
 }
 
 type postRow struct {
-	ID                int64     `db:"id"`
+	ID                string    `db:"id"`
 	Title             string    `db:"title"`
 	Caption           string    `db:"caption"`
 	ImageURL          string    `db:"image_url"`
 	ExamName          *string   `db:"exam_name"`
 	CreatedAt         time.Time `db:"created_at"`
-	AuthorID          int64     `db:"author_id"`
+	AuthorID          string    `db:"author_id"`
 	AuthorUsername    string    `db:"author_username"`
 	AuthorDisplayName string    `db:"author_display_name"`
 	AuthorRole        string    `db:"author_role"`
@@ -409,15 +409,15 @@ type postRow struct {
 }
 
 type postTopicRow struct {
-	PostID int64  `db:"post_id"`
-	ID     int64  `db:"id"`
+	PostID string `db:"post_id"`
+	ID     string `db:"id"`
 	Slug   string `db:"slug"`
 	Name   string `db:"name"`
 }
 
 type reactionCountRow struct {
-	PostID int64 `db:"post_id"`
-	Total  int64 `db:"total"`
+	PostID string `db:"post_id"`
+	Total  int64  `db:"total"`
 }
 
 func hydrateTopics(source db.Tx, rows []topicRow) ([]Topic, error) {
@@ -426,7 +426,7 @@ func hydrateTopics(source db.Tx, rows []topicRow) ([]Topic, error) {
 		return topics, nil
 	}
 
-	topicIDs := make([]int64, 0, len(rows))
+	topicIDs := make([]string, 0, len(rows))
 	for _, row := range rows {
 		topicIDs = append(topicIDs, row.ID)
 	}
@@ -448,8 +448,8 @@ func hydrateTopics(source db.Tx, rows []topicRow) ([]Topic, error) {
 	return topics, nil
 }
 
-func loadAliases(source db.Tx, topicIDs []int64) (map[int64][]string, error) {
-	aliasesByTopic := make(map[int64][]string, len(topicIDs))
+func loadAliases(source db.Tx, topicIDs []string) (map[string][]string, error) {
+	aliasesByTopic := make(map[string][]string, len(topicIDs))
 	for _, topicID := range topicIDs {
 		aliasesByTopic[topicID] = []string{}
 	}
@@ -460,7 +460,7 @@ func loadAliases(source db.Tx, topicIDs []int64) (map[int64][]string, error) {
 	rows := make([]aliasRow, 0)
 	err := source.Table("topic_aliases").
 		Select("topic_id", "alias").
-		WhereIn("topic_id", int64Values(topicIDs)).
+		WhereIn("topic_id", stringValues(topicIDs)).
 		OrderBy("topic_id").
 		OrderBy("id").
 		Get(&rows)
@@ -493,7 +493,7 @@ func postBaseQuery(source db.Tx) db.Query {
 		)
 }
 
-func getPost(source db.Tx, viewerID, postID int64) (Post, error) {
+func getPost(source db.Tx, viewerID, postID string) (Post, error) {
 	rows := make([]postRow, 0, 1)
 	err := postBaseQuery(source).
 		Where("posts.id", postID).
@@ -515,13 +515,13 @@ func getPost(source db.Tx, viewerID, postID int64) (Post, error) {
 	return posts[0], nil
 }
 
-func hydratePosts(source db.Tx, rows []postRow, viewerID int64) ([]Post, error) {
+func hydratePosts(source db.Tx, rows []postRow, viewerID string) ([]Post, error) {
 	posts := make([]Post, 0, len(rows))
 	if len(rows) == 0 {
 		return posts, nil
 	}
 
-	postIDs := make([]int64, 0, len(rows))
+	postIDs := make([]string, 0, len(rows))
 	for _, row := range rows {
 		postIDs = append(postIDs, row.ID)
 	}
@@ -564,8 +564,8 @@ func hydratePosts(source db.Tx, rows []postRow, viewerID int64) ([]Post, error) 
 	return posts, nil
 }
 
-func loadPostTopics(source db.Tx, postIDs []int64) (map[int64][]Topic, error) {
-	topicsByPost := make(map[int64][]Topic, len(postIDs))
+func loadPostTopics(source db.Tx, postIDs []string) (map[string][]Topic, error) {
+	topicsByPost := make(map[string][]Topic, len(postIDs))
 	for _, postID := range postIDs {
 		topicsByPost[postID] = []Topic{}
 	}
@@ -579,7 +579,7 @@ func loadPostTopics(source db.Tx, postIDs []int64) (map[int64][]Topic, error) {
 			"topics.slug AS slug",
 			"topics.name AS name",
 		).
-		WhereIn("post_topics.post_id", int64Values(postIDs)).
+		WhereIn("post_topics.post_id", stringValues(postIDs)).
 		OrderBy("post_topics.post_id").
 		OrderBy("topics.id").
 		Get(&rows)
@@ -587,8 +587,8 @@ func loadPostTopics(source db.Tx, postIDs []int64) (map[int64][]Topic, error) {
 		return nil, err
 	}
 
-	topicIDs := make([]int64, 0, len(rows))
-	seenTopics := make(map[int64]struct{}, len(rows))
+	topicIDs := make([]string, 0, len(rows))
+	seenTopics := make(map[string]struct{}, len(rows))
 	for _, row := range rows {
 		if _, ok := seenTopics[row.ID]; !ok {
 			seenTopics[row.ID] = struct{}{}
@@ -612,13 +612,13 @@ func loadPostTopics(source db.Tx, postIDs []int64) (map[int64][]Topic, error) {
 	return topicsByPost, nil
 }
 
-func loadReactionCounts(source db.Tx, postIDs []int64) (map[int64]int64, error) {
-	counts := make(map[int64]int64, len(postIDs))
+func loadReactionCounts(source db.Tx, postIDs []string) (map[string]int64, error) {
+	counts := make(map[string]int64, len(postIDs))
 	rows := make([]reactionCountRow, 0)
 
 	err := source.Table("reactions").
 		Select("post_id", "COUNT(*) AS total").
-		WhereIn("post_id", int64Values(postIDs)).
+		WhereIn("post_id", stringValues(postIDs)).
 		GroupBy("post_id").
 		Get(&rows)
 	if err != nil {
@@ -634,19 +634,19 @@ func loadReactionCounts(source db.Tx, postIDs []int64) (map[int64]int64, error) 
 
 func loadViewerReactions(
 	source db.Tx,
-	postIDs []int64,
-	viewerID int64,
-) (map[int64]struct{}, error) {
-	var reactedPostIDs []int64
+	postIDs []string,
+	viewerID string,
+) (map[string]struct{}, error) {
+	var reactedPostIDs []string
 	err := source.Table("reactions").
 		Where("user_id", viewerID).
-		WhereIn("post_id", int64Values(postIDs)).
+		WhereIn("post_id", stringValues(postIDs)).
 		Pluck("post_id", &reactedPostIDs)
 	if err != nil {
 		return nil, err
 	}
 
-	reactions := make(map[int64]struct{}, len(reactedPostIDs))
+	reactions := make(map[string]struct{}, len(reactedPostIDs))
 	for _, postID := range reactedPostIDs {
 		reactions[postID] = struct{}{}
 	}
@@ -654,14 +654,14 @@ func loadViewerReactions(
 	return reactions, nil
 }
 
-func publishedPostExists(source db.Tx, postID int64) (bool, error) {
+func publishedPostExists(source db.Tx, postID string) (bool, error) {
 	return source.Table("posts").
 		Where("id", postID).
 		Where("status", models.PostStatusPublished).
 		Exists()
 }
 
-func publishedPostExistsForUpdate(source db.Tx, postID int64) (bool, error) {
+func publishedPostExistsForUpdate(source db.Tx, postID string) (bool, error) {
 	return source.Table("posts").
 		Where("id", postID).
 		Where("status", models.PostStatusPublished).
@@ -669,7 +669,7 @@ func publishedPostExistsForUpdate(source db.Tx, postID int64) (bool, error) {
 		Exists()
 }
 
-func putReactionIdempotently(source db.Tx, userID, postID int64) error {
+func putReactionIdempotently(source db.Tx, userID, postID string) error {
 	identity := map[string]any{
 		"post_id": postID,
 		"user_id": userID,
@@ -700,7 +700,7 @@ func putReactionIdempotently(source db.Tx, userID, postID int64) error {
 	return errReactionStateNotPersisted
 }
 
-func int64Values(values []int64) []any {
+func stringValues(values []string) []any {
 	result := make([]any, len(values))
 	for index, value := range values {
 		result[index] = value

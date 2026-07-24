@@ -3,7 +3,8 @@ package migrations
 import (
 	"fmt"
 
-	"github.com/goravel/framework/contracts/database/schema"
+	contractsschema "github.com/goravel/framework/contracts/database/schema"
+	frameworkschema "github.com/goravel/framework/database/schema"
 
 	"goravel/app/facades"
 )
@@ -61,7 +62,7 @@ func (r *M20260724000001CreateArtlySocialTables) Down() error {
 		}
 	}
 
-	if err := facades.DB().Statement(`DROP FUNCTION IF EXISTS artly_set_updated_at()`); err != nil {
+	if err := facades.Schema().Sql(`DROP FUNCTION IF EXISTS artly_set_updated_at()`); err != nil {
 		return fmt.Errorf("xóa function cập nhật updated_at: %w", err)
 	}
 
@@ -69,12 +70,8 @@ func (r *M20260724000001CreateArtlySocialTables) Down() error {
 }
 
 func createUsersTable() error {
-	if facades.Schema().HasTable("users") {
-		return nil
-	}
-
-	return facades.Schema().Create("users", func(table schema.Blueprint) {
-		table.ID()
+	return createTableIfMissing("users", func(table contractsschema.Blueprint) {
+		addUUIDPrimaryKey(table)
 		table.String("username", 50)
 		table.String("display_name", 100)
 		table.Enum("role", []any{"STUDENT", "TEACHER"})
@@ -87,12 +84,8 @@ func createUsersTable() error {
 }
 
 func createTopicsTable() error {
-	if facades.Schema().HasTable("topics") {
-		return nil
-	}
-
-	return facades.Schema().Create("topics", func(table schema.Blueprint) {
-		table.ID()
+	return createTableIfMissing("topics", func(table contractsschema.Blueprint) {
+		addUUIDPrimaryKey(table)
 		table.String("slug", 100)
 		table.String("name", 100)
 		table.String("normalized_name", 100)
@@ -105,13 +98,9 @@ func createTopicsTable() error {
 }
 
 func createTopicAliasesTable() error {
-	if facades.Schema().HasTable("topic_aliases") {
-		return nil
-	}
-
-	return facades.Schema().Create("topic_aliases", func(table schema.Blueprint) {
-		table.ID()
-		table.BigInteger("topic_id")
+	return createTableIfMissing("topic_aliases", func(table contractsschema.Blueprint) {
+		addUUIDPrimaryKey(table)
+		table.Uuid("topic_id")
 		table.String("alias", 100)
 		table.String("normalized_alias", 100)
 		addTimestamps(table)
@@ -128,13 +117,9 @@ func createTopicAliasesTable() error {
 }
 
 func createPostsTable() error {
-	if facades.Schema().HasTable("posts") {
-		return nil
-	}
-
-	return facades.Schema().Create("posts", func(table schema.Blueprint) {
-		table.ID()
-		table.BigInteger("user_id")
+	return createTableIfMissing("posts", func(table contractsschema.Blueprint) {
+		addUUIDPrimaryKey(table)
+		table.Uuid("user_id")
 		table.String("title", 120)
 		table.Text("caption")
 		table.String("image_url", 2048)
@@ -154,13 +139,9 @@ func createPostsTable() error {
 }
 
 func createPostTopicsTable() error {
-	if facades.Schema().HasTable("post_topics") {
-		return nil
-	}
-
-	return facades.Schema().Create("post_topics", func(table schema.Blueprint) {
-		table.BigInteger("post_id")
-		table.BigInteger("topic_id")
+	return createTableIfMissing("post_topics", func(table contractsschema.Blueprint) {
+		table.Uuid("post_id")
+		table.Uuid("topic_id")
 		addTimestamps(table)
 
 		table.Primary("post_id", "topic_id")
@@ -181,14 +162,10 @@ func createPostTopicsTable() error {
 }
 
 func createReactionsTable() error {
-	if facades.Schema().HasTable("reactions") {
-		return nil
-	}
-
-	return facades.Schema().Create("reactions", func(table schema.Blueprint) {
-		table.ID()
-		table.BigInteger("post_id")
-		table.BigInteger("user_id")
+	return createTableIfMissing("reactions", func(table contractsschema.Blueprint) {
+		addUUIDPrimaryKey(table)
+		table.Uuid("post_id")
+		table.Uuid("user_id")
 		table.Enum("type", []any{"LIKE", "LOVE", "CLAP"}).Default("LIKE")
 		addTimestamps(table)
 
@@ -210,14 +187,10 @@ func createReactionsTable() error {
 }
 
 func createMessagesTable() error {
-	if facades.Schema().HasTable("messages") {
-		return nil
-	}
-
-	return facades.Schema().Create("messages", func(table schema.Blueprint) {
-		table.ID()
-		table.BigInteger("sender_id")
-		table.BigInteger("receiver_id")
+	return createTableIfMissing("messages", func(table contractsschema.Blueprint) {
+		addUUIDPrimaryKey(table)
+		table.Uuid("sender_id")
+		table.Uuid("receiver_id")
 		table.Text("body")
 		table.Boolean("is_read").Default(false)
 		addTimestamps(table)
@@ -243,7 +216,50 @@ func createMessagesTable() error {
 	})
 }
 
-func addTimestamps(table schema.Blueprint) {
+func createTableIfMissing(
+	name string,
+	callback func(table contractsschema.Blueprint),
+) error {
+	exists, err := currentSchemaHasTable(name)
+	if err != nil {
+		return fmt.Errorf("kiểm tra bảng %s trong schema hiện tại: %w", name, err)
+	}
+	if exists {
+		return nil
+	}
+
+	return facades.Schema().Create(name, callback)
+}
+
+func currentSchemaHasTable(name string) (bool, error) {
+	var counts []struct {
+		Total int64 `db:"total"`
+	}
+
+	err := facades.Schema().Orm().Query().Raw(
+		`SELECT COUNT(*) AS total
+		 FROM information_schema.tables
+		 WHERE table_schema = current_schema()
+		   AND table_name = ?
+		   AND table_type = 'BASE TABLE'`,
+		name,
+	).Scan(&counts)
+	if err != nil {
+		return false, err
+	}
+	if len(counts) != 1 {
+		return false, fmt.Errorf("không đọc được metadata bảng")
+	}
+
+	return counts[0].Total > 0, nil
+}
+
+func addUUIDPrimaryKey(table contractsschema.Blueprint) {
+	table.Uuid("id").Default(frameworkschema.Expression("gen_random_uuid()"))
+	table.Primary("id")
+}
+
+func addTimestamps(table contractsschema.Blueprint) {
 	table.TimestampTz("created_at", 3).UseCurrent()
 	table.TimestampTz("updated_at", 3).UseCurrent()
 }
@@ -334,7 +350,7 @@ func ensureCheckConstraints() error {
 		if exists {
 			continue
 		}
-		if err := facades.DB().Statement(constraint.statement); err != nil {
+		if err := facades.Schema().Sql(constraint.statement); err != nil {
 			return fmt.Errorf("tạo constraint %s: %w", constraint.name, err)
 		}
 	}
@@ -353,7 +369,7 @@ BEGIN
 END;
 $$`
 
-	if err := facades.DB().Statement(createFunctionStatement); err != nil {
+	if err := facades.Schema().Sql(createFunctionStatement); err != nil {
 		return fmt.Errorf("tạo hoặc cập nhật function cập nhật updated_at: %w", err)
 	}
 
@@ -368,7 +384,7 @@ $$`
 	} {
 		trigger := table + "_set_updated_at"
 
-		if err := facades.DB().Statement(fmt.Sprintf(
+		if err := facades.Schema().Sql(fmt.Sprintf(
 			`DROP TRIGGER IF EXISTS "%s" ON "%s"`,
 			trigger,
 			table,
@@ -376,7 +392,7 @@ $$`
 			return fmt.Errorf("xóa trigger %s: %w", trigger, err)
 		}
 
-		if err := facades.DB().Statement(fmt.Sprintf(
+		if err := facades.Schema().Sql(fmt.Sprintf(
 			`CREATE TRIGGER "%s"
 BEFORE UPDATE ON "%s"
 FOR EACH ROW
@@ -396,17 +412,16 @@ func checkConstraintExists(table, name string) (bool, error) {
 		Total int64 `db:"total"`
 	}
 
-	err := facades.DB().Select(
-		&counts,
+	err := facades.Schema().Orm().Query().Raw(
 		`SELECT COUNT(*) AS total
 		 FROM information_schema.table_constraints
 		 WHERE constraint_schema = current_schema()
-		   AND table_name = $1
-		   AND constraint_name = $2
+		   AND table_name = ?
+		   AND constraint_name = ?
 		   AND constraint_type = 'CHECK'`,
 		table,
 		name,
-	)
+	).Scan(&counts)
 	if err != nil {
 		return false, err
 	}

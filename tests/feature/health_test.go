@@ -49,7 +49,7 @@ func (s *HealthTestSuite) TestChunkedPayloadIsRejectedBeforeController() {
 	s.Require().NoError(err)
 	request.ContentLength = -1
 	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("X-User-ID", "1")
+	request.Header.Set("X-User-ID", "00000000-0000-4000-8000-000000000001")
 
 	response, err := facades.Route().Test(request)
 	s.Require().NoError(err)

@@ -3,6 +3,7 @@
 .agents
 .env
 .env.*
+*.pem
 storage
 tmp
 README_zh.md

@@ -82,7 +82,7 @@ func TestRequestBoundaryAllowsBodyWithinLimit(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, `{"body":"xin chào"}`, string(body))
 			writer.WriteHeader(http.StatusCreated)
-			_, _ = writer.Write([]byte(`{"data":{"id":1}}`))
+			_, _ = writer.Write([]byte(`{"data":{"id":"20000000-0000-4000-8000-000000000001"}}`))
 		}),
 		1024,
 		time.Second,
@@ -98,7 +98,11 @@ func TestRequestBoundaryAllowsBodyWithinLimit(t *testing.T) {
 	handler.ServeHTTP(response, request)
 
 	require.Equal(t, http.StatusCreated, response.Code)
-	require.JSONEq(t, `{"data":{"id":1}}`, response.Body.String())
+	require.JSONEq(
+		t,
+		`{"data":{"id":"20000000-0000-4000-8000-000000000001"}}`,
+		response.Body.String(),
+	)
 }
 
 func TestRequestBoundaryReturnsJSONTimeoutContract(t *testing.T) {

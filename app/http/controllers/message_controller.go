@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -24,6 +23,7 @@ const (
 	defaultMessagePage     = 1
 	defaultMessagePageSize = 50
 	maxMessagePageSize     = 100
+	maxMessagePageNumber   = 100_000
 	maxMessageBodyLength   = 2000
 	maxMessageRequestBytes = 32 * 1024
 )
@@ -31,15 +31,15 @@ const (
 type messageService interface {
 	List(
 		ctx context.Context,
-		currentUserID uint64,
-		peerID uint64,
+		currentUserID string,
+		peerID string,
 		page int,
 		pageSize int,
 	) (services.MessageListResult, error)
 	Create(
 		ctx context.Context,
-		currentUserID uint64,
-		recipientID uint64,
+		currentUserID string,
+		recipientID string,
 		body string,
 	) (services.MessageDTO, error)
 }
@@ -68,7 +68,7 @@ func (c *MessageController) List(ctx http.Context) http.Response {
 
 	result, err := c.service.List(
 		ctx,
-		uint64(currentUserID),
+		currentUserID,
 		params.PeerID,
 		params.Page,
 		params.PageSize,
@@ -106,7 +106,7 @@ func (c *MessageController) Create(ctx http.Context) http.Response {
 
 	message, err := c.service.Create(
 		ctx,
-		uint64(currentUserID),
+		currentUserID,
 		validated.RecipientID,
 		validated.Body,
 	)
@@ -118,7 +118,7 @@ func (c *MessageController) Create(ctx http.Context) http.Response {
 }
 
 type messageListParams struct {
-	PeerID   uint64
+	PeerID   string
 	Page     int
 	PageSize int
 }
@@ -131,21 +131,16 @@ func parseMessageListParams(query map[string]string) (messageListParams, *messag
 		})
 	}
 
-	peerID, err := strconv.ParseUint(strings.TrimSpace(peerValue), 10, 64)
+	peerID, err := support.ParseResourceID(peerValue)
 	if err != nil {
 		return messageListParams{}, malformedMessageParameterFailure("peerId")
-	}
-	if peerID == 0 || peerID > math.MaxInt64 {
-		return messageListParams{}, messageValidationFailure(map[string][]string{
-			"peerId": {"ID người trò chuyện phải là số nguyên dương."},
-		})
 	}
 
 	page, failure := parseOptionalMessagePageParameter(
 		query,
 		"page",
 		defaultMessagePage,
-		maximumPageNumber,
+		maxMessagePageNumber,
 	)
 	if failure != nil {
 		return messageListParams{}, failure
@@ -197,12 +192,12 @@ func parseOptionalMessagePageParameter(
 }
 
 type createMessageRequest struct {
-	RecipientID *uint64 `json:"recipientId"`
+	RecipientID *string `json:"recipientId"`
 	Body        *string `json:"body"`
 }
 
 type validatedCreateMessageRequest struct {
-	RecipientID uint64
+	RecipientID string
 	Body        string
 }
 
@@ -242,13 +237,15 @@ func validateCreateMessageRequest(
 	input createMessageRequest,
 ) (validatedCreateMessageRequest, *messageRequestFailure) {
 	fields := make(map[string][]string)
-	var recipientID uint64
+	recipientID := ""
 	if input.RecipientID == nil {
 		fields["recipientId"] = []string{"ID người nhận là bắt buộc."}
 	} else {
-		recipientID = *input.RecipientID
-		if recipientID == 0 || recipientID > math.MaxInt64 {
-			fields["recipientId"] = []string{"ID người nhận phải là số nguyên dương."}
+		parsedRecipientID, err := support.ParseResourceID(*input.RecipientID)
+		if err != nil {
+			fields["recipientId"] = []string{"ID người nhận phải là một UUID hợp lệ."}
+		} else {
+			recipientID = parsedRecipientID
 		}
 	}
 

@@ -8,8 +8,8 @@ type Timestamps struct {
 	UpdatedAt *carbon.DateTime `gorm:"autoUpdateTime;column:updated_at" db:"updated_at" json:"updatedAt"`
 }
 
-// BaseModel contains the numeric primary key used by the public API.
+// BaseModel contains the UUID primary key used by the public API.
 type BaseModel struct {
-	ID uint64 `gorm:"column:id;primaryKey;autoIncrement" db:"id" json:"id"`
+	ID string `gorm:"column:id;type:uuid;primaryKey;default:gen_random_uuid()" db:"id" json:"id"`
 	Timestamps
 }

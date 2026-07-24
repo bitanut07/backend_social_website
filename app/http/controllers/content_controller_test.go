@@ -5,6 +5,14 @@ import (
 	"testing"
 )
 
+const (
+	contentControllerTopicID1      = "10000000-0000-4000-8000-000000000001"
+	contentControllerTopicID2      = "10000000-0000-4000-8000-000000000002"
+	contentControllerCanonicalUUID = "10000000-0000-4000-8000-00000000000a"
+	contentControllerUppercaseUUID = "10000000-0000-4000-8000-00000000000A"
+	contentControllerNilUUID       = "00000000-0000-0000-0000-000000000000"
+)
+
 func TestParsePagination(t *testing.T) {
 	t.Parallel()
 
@@ -99,7 +107,10 @@ func TestDecodeAndValidateCreatePost(t *testing.T) {
 		"caption": "  Màu nước trên giấy.  ",
 		"imageUrl": " https://images.example.com/art.jpg ",
 		"examName": "  Sắc màu 2026  ",
-		"topicIds": [2, 4]
+		"topicIds": [
+			"10000000-0000-4000-8000-000000000001",
+			"10000000-0000-4000-8000-000000000002"
+		]
 	}`
 
 	request, err := decodeAndValidateCreatePost(strings.NewReader(validBody))
@@ -118,8 +129,33 @@ func TestDecodeAndValidateCreatePost(t *testing.T) {
 	if request.ExamName == nil || *request.ExamName != "Sắc màu 2026" {
 		t.Fatalf("unexpected exam name: %#v", request.ExamName)
 	}
-	if len(request.TopicIDs) != 2 || request.TopicIDs[0] != 2 || request.TopicIDs[1] != 4 {
+	if len(request.TopicIDs) != 2 ||
+		request.TopicIDs[0] != contentControllerTopicID1 ||
+		request.TopicIDs[1] != contentControllerTopicID2 {
 		t.Fatalf("unexpected topic ids: %#v", request.TopicIDs)
+	}
+}
+
+func TestDecodeAndValidateCreatePostCanonicalizesTopicUUIDs(t *testing.T) {
+	t.Parallel()
+
+	body := `{
+		"title":"T",
+		"caption":"C",
+		"imageUrl":"https://example.com/a.jpg",
+		"topicIds":["10000000-0000-4000-8000-00000000000A"]
+	}`
+
+	request, err := decodeAndValidateCreatePost(strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !equalStringSlices(request.TopicIDs, []string{contentControllerCanonicalUUID}) {
+		t.Fatalf(
+			"topic IDs = %#v, want canonical UUID %q",
+			request.TopicIDs,
+			contentControllerCanonicalUUID,
+		)
 	}
 }
 
@@ -140,7 +176,8 @@ func TestDecodeAndValidateCreatePostRejectsMalformedShape(t *testing.T) {
 			name: "rejects unknown fields",
 			body: `{
 				"title":"T", "caption":"C", "imageUrl":"https://example.com/a.jpg",
-				"topicIds":[1], "html":"<script>alert(1)</script>"
+				"topicIds":["10000000-0000-4000-8000-000000000001"],
+				"html":"<script>alert(1)</script>"
 			}`,
 			wantKind: inputErrorValidation,
 		},
@@ -148,7 +185,8 @@ func TestDecodeAndValidateCreatePostRejectsMalformedShape(t *testing.T) {
 			name: "rejects explicit null optional string",
 			body: `{
 				"title":"T", "caption":"C", "imageUrl":"https://example.com/a.jpg",
-				"topicIds":[1], "examName":null
+				"topicIds":["10000000-0000-4000-8000-000000000001"],
+				"examName":null
 			}`,
 			wantKind: inputErrorValidation,
 		},
@@ -156,7 +194,7 @@ func TestDecodeAndValidateCreatePostRejectsMalformedShape(t *testing.T) {
 			name: "rejects trailing JSON",
 			body: `{
 				"title":"T", "caption":"C", "imageUrl":"https://example.com/a.jpg",
-				"topicIds":[1]
+				"topicIds":["10000000-0000-4000-8000-000000000001"]
 			} {}`,
 			wantKind: inputErrorMalformed,
 		},
@@ -164,7 +202,34 @@ func TestDecodeAndValidateCreatePostRejectsMalformedShape(t *testing.T) {
 			name: "rejects duplicate topics",
 			body: `{
 				"title":"T", "caption":"C", "imageUrl":"https://example.com/a.jpg",
-				"topicIds":[1,1]
+				"topicIds":[
+					"10000000-0000-4000-8000-00000000000A",
+					"10000000-0000-4000-8000-00000000000a"
+				]
+			}`,
+			wantKind: inputErrorValidation,
+		},
+		{
+			name: "rejects invalid topic UUID",
+			body: `{
+				"title":"T", "caption":"C", "imageUrl":"https://example.com/a.jpg",
+				"topicIds":["not-a-uuid"]
+			}`,
+			wantKind: inputErrorValidation,
+		},
+		{
+			name: "rejects nil topic UUID",
+			body: `{
+				"title":"T", "caption":"C", "imageUrl":"https://example.com/a.jpg",
+				"topicIds":["00000000-0000-0000-0000-000000000000"]
+			}`,
+			wantKind: inputErrorValidation,
+		},
+		{
+			name: "rejects numeric topic IDs",
+			body: `{
+				"title":"T", "caption":"C", "imageUrl":"https://example.com/a.jpg",
+				"topicIds":[1]
 			}`,
 			wantKind: inputErrorValidation,
 		},
@@ -172,7 +237,7 @@ func TestDecodeAndValidateCreatePostRejectsMalformedShape(t *testing.T) {
 			name: "rejects non HTTP image URL",
 			body: `{
 				"title":"T", "caption":"C", "imageUrl":"file:///tmp/a.jpg",
-				"topicIds":[1]
+				"topicIds":["10000000-0000-4000-8000-000000000001"]
 			}`,
 			wantKind: inputErrorValidation,
 		},
@@ -180,7 +245,7 @@ func TestDecodeAndValidateCreatePostRejectsMalformedShape(t *testing.T) {
 			name: "rejects blank required text",
 			body: `{
 				"title":" ", "caption":"C", "imageUrl":"https://example.com/a.jpg",
-				"topicIds":[1]
+				"topicIds":["10000000-0000-4000-8000-000000000001"]
 			}`,
 			wantKind: inputErrorValidation,
 		},
@@ -205,12 +270,15 @@ func TestDecodeAndValidateCreatePostRejectsMalformedShape(t *testing.T) {
 func TestParseOptionalResourceID(t *testing.T) {
 	t.Parallel()
 
-	id, err := parseOptionalResourceID(" 42 ", "topicId")
+	id, err := parseOptionalResourceID(
+		" "+contentControllerUppercaseUUID+" ",
+		"topicId",
+	)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if id == nil || *id != 42 {
-		t.Fatalf("got %#v, want 42", id)
+	if id == nil || *id != contentControllerCanonicalUUID {
+		t.Fatalf("got %#v, want canonical UUID %q", id, contentControllerCanonicalUUID)
 	}
 
 	id, err = parseOptionalResourceID("", "topicId")
@@ -221,10 +289,49 @@ func TestParseOptionalResourceID(t *testing.T) {
 		t.Fatalf("got %#v, want nil", id)
 	}
 
-	if _, err = parseOptionalResourceID("-1", "topicId"); err == nil || err.Kind != inputErrorValidation {
-		t.Fatalf("got %#v, want validation error", err)
+	for _, invalid := range []string{"42", "topic", contentControllerNilUUID} {
+		if _, err = parseOptionalResourceID(invalid, "topicId"); err == nil ||
+			err.Kind != inputErrorMalformed {
+			t.Fatalf("parseOptionalResourceID(%q) error = %#v, want malformed", invalid, err)
+		}
+		if failure := inputFailure(err); failure.status != 400 {
+			t.Fatalf(
+				"parseOptionalResourceID(%q) HTTP status = %d, want 400",
+				invalid,
+				failure.status,
+			)
+		}
 	}
-	if _, err = parseOptionalResourceID("topic", "topicId"); err == nil || err.Kind != inputErrorMalformed {
-		t.Fatalf("got %#v, want malformed error", err)
+}
+
+func TestParseRequiredResourceID(t *testing.T) {
+	t.Parallel()
+
+	id, err := parseRequiredResourceID(contentControllerUppercaseUUID, "id")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
+	if id != contentControllerCanonicalUUID {
+		t.Fatalf("got %q, want canonical UUID %q", id, contentControllerCanonicalUUID)
+	}
+
+	for _, invalid := range []string{"", "25", contentControllerNilUUID} {
+		if _, inputErr := parseRequiredResourceID(invalid, "id"); inputErr == nil ||
+			inputErr.Kind != inputErrorMalformed {
+			t.Fatalf("parseRequiredResourceID(%q) error = %#v, want malformed", invalid, inputErr)
+		}
+	}
+}
+
+func equalStringSlices(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+
+	return true
 }

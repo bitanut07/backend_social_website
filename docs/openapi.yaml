@@ -16,6 +16,9 @@ info:
     Mọi thuộc tính JSON dùng camelCase. Mọi phản hồi lỗi đều có cùng cấu trúc:
     `{ "error": { "code", "message", "details" } }`.
 
+    Mọi ID tài nguyên trong JSON, header, path và query là chuỗi UUID. Các giá
+    trị phân trang, số lượng reaction/kết quả đếm và mã trạng thái HTTP vẫn là số.
+
 servers:
   - url: http://localhost:3000
     description: Goravel chạy trên máy local
@@ -63,8 +66,8 @@ paths:
         - Người dùng
       summary: Lấy danh sách tài khoản mẫu
       description: |
-        Trả về tài khoản theo thứ tự tăng dần của ID. Endpoint này không yêu cầu
-        `X-User-ID` để người dùng có thể chọn tài khoản demo.
+        Trả về tài khoản theo thứ tự tăng dần của UUID. Endpoint này không yêu
+        cầu `X-User-ID` để người dùng có thể chọn tài khoản demo.
       operationId: listUsers
       security: []
       parameters:
@@ -82,20 +85,25 @@ paths:
                   summary: Học sinh và giáo viên mẫu
                   value:
                     data:
-                      - id: 1
-                        username: linh.ve
-                        displayName: Nguyễn Gia Linh
+                      - id: "00000000-0000-4000-8000-000000000001"
+                        username: minh.an
+                        displayName: Trần Minh An
                         role: STUDENT
-                        avatarUrl: https://images.example.com/avatars/linh.jpg
-                      - id: 2
-                        username: co.mai
-                        displayName: Cô Mai Anh
+                        avatarUrl: https://i.pravatar.cc/256?img=12
+                      - id: "00000000-0000-4000-8000-000000000002"
+                        username: co.lan
+                        displayName: Cô Nguyễn Hoài Lan
                         role: TEACHER
-                        avatarUrl: https://images.example.com/avatars/mai.jpg
+                        avatarUrl: https://i.pravatar.cc/256?img=47
+                      - id: "00000000-0000-4000-8000-000000000003"
+                        username: phuong.thao
+                        displayName: Nguyễn Phương Thảo
+                        role: STUDENT
+                        avatarUrl: https://i.pravatar.cc/256?img=32
                     pagination:
                       page: 1
                       pageSize: 20
-                      totalItems: 2
+                      totalItems: 3
                       totalPages: 1
         "400":
           $ref: "#/components/responses/BadRequest"
@@ -129,22 +137,46 @@ paths:
                   summary: Một số chủ đề vẽ
                   value:
                     data:
-                      - id: 1
-                        slug: chan-dung
-                        name: Chân dung
-                        aliases:
-                          - vẽ người
-                          - portrait
-                      - id: 2
+                      - id: "10000000-0000-4000-8000-000000000001"
                         slug: phong-canh
                         name: Phong cảnh
                         aliases:
-                          - cảnh vật
-                          - landscape
+                          - Cảnh vật
+                          - Landscape
+                      - id: "10000000-0000-4000-8000-000000000002"
+                        slug: chan-dung
+                        name: Chân dung
+                        aliases:
+                          - Vẽ người
+                          - Portrait
+                      - id: "10000000-0000-4000-8000-000000000003"
+                        slug: moi-truong
+                        name: Môi trường
+                        aliases:
+                          - Bảo vệ môi trường
+                          - Environment
+                      - id: "10000000-0000-4000-8000-000000000004"
+                        slug: hoa-binh
+                        name: Hòa bình
+                        aliases:
+                          - Tình bạn
+                          - Peace
+                      - id: "10000000-0000-4000-8000-000000000005"
+                        slug: di-san-van-hoa
+                        name: Di sản văn hóa
+                        aliases:
+                          - Di sản
+                          - Heritage
+                      - id: "10000000-0000-4000-8000-000000000006"
+                        slug: uoc-mo
+                        name: Ước mơ
+                        aliases:
+                          - Giấc mơ
+                          - Dream
                     pagination:
                       page: 1
                       pageSize: 20
-                      totalItems: 2
+                      totalItems: 6
                       totalPages: 1
         "400":
           $ref: "#/components/responses/BadRequest"
@@ -181,31 +213,64 @@ paths:
                   summary: Bảng tin chủ đề phong cảnh
                   value:
                     data:
-                      - id: 18
-                        title: Buổi sáng trên cánh đồng
-                        caption: Bài dự thi em vẽ bằng màu nước trong 90 phút.
-                        imageUrl: https://images.example.com/art/canh-dong.jpg
-                        examName: Sắc màu quê hương 2026
+                      - id: "20000000-0000-4000-8000-000000000005"
+                        title: Thành phố trên mây
+                        caption: Em tưởng tượng một thành phố xanh có những khu vườn bay giữa bầu trời.
+                        imageUrl: https://images.unsplash.com/photo-1541961017774-22349e4a1262?auto=format&fit=crop&w=1200&q=80
+                        examName: Ước mơ của em
                         author:
-                          id: 1
-                          username: linh.ve
-                          displayName: Nguyễn Gia Linh
+                          id: "00000000-0000-4000-8000-000000000001"
+                          username: minh.an
+                          displayName: Trần Minh An
                           role: STUDENT
-                          avatarUrl: https://images.example.com/avatars/linh.jpg
+                          avatarUrl: https://i.pravatar.cc/256?img=12
                         topics:
-                          - id: 2
+                          - id: "10000000-0000-4000-8000-000000000001"
                             slug: phong-canh
                             name: Phong cảnh
                             aliases:
-                              - cảnh vật
-                              - landscape
-                        reactionCount: 12
-                        viewerHasReacted: true
+                              - Cảnh vật
+                              - Landscape
+                          - id: "10000000-0000-4000-8000-000000000006"
+                            slug: uoc-mo
+                            name: Ước mơ
+                            aliases:
+                              - Giấc mơ
+                              - Dream
+                        reactionCount: 1
+                        viewerHasReacted: false
+                        createdAt: "2026-07-24T08:30:00+07:00"
+                      - id: "20000000-0000-4000-8000-000000000001"
+                        title: Mầm xanh tương lai
+                        caption: Bài vẽ màu nước về những bàn tay cùng nâng niu một mầm cây xanh.
+                        imageUrl: http://localhost:5173/demo-art/mam-xanh-tuong-lai.png
+                        examName: Sắc màu xanh 2026
+                        author:
+                          id: "00000000-0000-4000-8000-000000000001"
+                          username: minh.an
+                          displayName: Trần Minh An
+                          role: STUDENT
+                          avatarUrl: https://i.pravatar.cc/256?img=12
+                        topics:
+                          - id: "10000000-0000-4000-8000-000000000001"
+                            slug: phong-canh
+                            name: Phong cảnh
+                            aliases:
+                              - Cảnh vật
+                              - Landscape
+                          - id: "10000000-0000-4000-8000-000000000003"
+                            slug: moi-truong
+                            name: Môi trường
+                            aliases:
+                              - Bảo vệ môi trường
+                              - Environment
+                        reactionCount: 2
+                        viewerHasReacted: false
                         createdAt: "2026-07-24T08:30:00+07:00"
                     pagination:
                       page: 1
                       pageSize: 10
-                      totalItems: 1
+                      totalItems: 2
                       totalPages: 1
         "400":
           $ref: "#/components/responses/BadRequest"
@@ -242,12 +307,13 @@ paths:
               watercolorEntry:
                 summary: Bài dự thi màu nước
                 value:
-                  title: Buổi sáng trên cánh đồng
-                  caption: Bài dự thi em vẽ bằng màu nước trong 90 phút.
-                  imageUrl: https://images.example.com/art/canh-dong.jpg
-                  examName: Sắc màu quê hương 2026
+                  title: Mầm xanh tương lai
+                  caption: Bài vẽ màu nước về những bàn tay cùng nâng niu một mầm cây xanh.
+                  imageUrl: http://localhost:5173/demo-art/mam-xanh-tuong-lai.png
+                  examName: Sắc màu xanh 2026
                   topicIds:
-                    - 2
+                    - "10000000-0000-4000-8000-000000000001"
+                    - "10000000-0000-4000-8000-000000000003"
       responses:
         "201":
           description: Đã tạo bài viết.
@@ -260,24 +326,30 @@ paths:
                   summary: Bài viết vừa tạo
                   value:
                     data:
-                      id: 18
-                      title: Buổi sáng trên cánh đồng
-                      caption: Bài dự thi em vẽ bằng màu nước trong 90 phút.
-                      imageUrl: https://images.example.com/art/canh-dong.jpg
-                      examName: Sắc màu quê hương 2026
+                      id: "20000000-0000-4000-8000-000000000001"
+                      title: Mầm xanh tương lai
+                      caption: Bài vẽ màu nước về những bàn tay cùng nâng niu một mầm cây xanh.
+                      imageUrl: http://localhost:5173/demo-art/mam-xanh-tuong-lai.png
+                      examName: Sắc màu xanh 2026
                       author:
-                        id: 1
-                        username: linh.ve
-                        displayName: Nguyễn Gia Linh
+                        id: "00000000-0000-4000-8000-000000000001"
+                        username: minh.an
+                        displayName: Trần Minh An
                         role: STUDENT
-                        avatarUrl: https://images.example.com/avatars/linh.jpg
+                        avatarUrl: https://i.pravatar.cc/256?img=12
                       topics:
-                        - id: 2
+                        - id: "10000000-0000-4000-8000-000000000001"
                           slug: phong-canh
                           name: Phong cảnh
                           aliases:
-                            - cảnh vật
-                            - landscape
+                            - Cảnh vật
+                            - Landscape
+                        - id: "10000000-0000-4000-8000-000000000003"
+                          slug: moi-truong
+                          name: Môi trường
+                          aliases:
+                            - Bảo vệ môi trường
+                            - Environment
                       reactionCount: 0
                       viewerHasReacted: false
                       createdAt: "2026-07-24T08:30:00+07:00"
@@ -325,7 +397,7 @@ paths:
                   summary: Đã thả tim
                   value:
                     data:
-                      reactionCount: 13
+                      reactionCount: 3
                       viewerHasReacted: true
         "400":
           $ref: "#/components/responses/BadRequest"
@@ -362,7 +434,7 @@ paths:
                   summary: Đã gỡ tim
                   value:
                     data:
-                      reactionCount: 12
+                      reactionCount: 2
                       viewerHasReacted: false
         "400":
           $ref: "#/components/responses/BadRequest"
@@ -405,25 +477,40 @@ paths:
                   summary: Cuộc trò chuyện giữa học sinh và giáo viên
                   value:
                     data:
-                      - id: 35
+                      - id: "50000000-0000-4000-8000-000000000002"
                         sender:
-                          id: 2
-                          username: co.mai
-                          displayName: Cô Mai Anh
+                          id: "00000000-0000-4000-8000-000000000002"
+                          username: co.lan
+                          displayName: Cô Nguyễn Hoài Lan
                           role: TEACHER
-                          avatarUrl: https://images.example.com/avatars/mai.jpg
+                          avatarUrl: https://i.pravatar.cc/256?img=47
                         receiver:
-                          id: 1
-                          username: linh.ve
-                          displayName: Nguyễn Gia Linh
+                          id: "00000000-0000-4000-8000-000000000001"
+                          username: minh.an
+                          displayName: Trần Minh An
                           role: STUDENT
-                          avatarUrl: https://images.example.com/avatars/linh.jpg
-                        body: Em thử tăng độ tương phản ở vùng tiền cảnh nhé.
+                          avatarUrl: https://i.pravatar.cc/256?img=12
+                        body: Em thử tăng độ tương phản ở vùng tiền cảnh nhé, bố cục đang rất tốt.
+                        createdAt: "2026-07-24T09:10:00+07:00"
+                      - id: "50000000-0000-4000-8000-000000000001"
+                        sender:
+                          id: "00000000-0000-4000-8000-000000000001"
+                          username: minh.an
+                          displayName: Trần Minh An
+                          role: STUDENT
+                          avatarUrl: https://i.pravatar.cc/256?img=12
+                        receiver:
+                          id: "00000000-0000-4000-8000-000000000002"
+                          username: co.lan
+                          displayName: Cô Nguyễn Hoài Lan
+                          role: TEACHER
+                          avatarUrl: https://i.pravatar.cc/256?img=47
+                        body: Cô xem giúp em phần phối màu của bài Mầm xanh tương lai với ạ.
                         createdAt: "2026-07-24T09:10:00+07:00"
                     pagination:
                       page: 1
                       pageSize: 50
-                      totalItems: 1
+                      totalItems: 2
                       totalPages: 1
         "400":
           $ref: "#/components/responses/BadRequest"
@@ -455,8 +542,8 @@ paths:
               feedbackQuestion:
                 summary: Học sinh hỏi nhận xét
                 value:
-                  recipientId: 2
-                  body: Cô xem giúp em phần phối màu của bài này với ạ.
+                  recipientId: "00000000-0000-4000-8000-000000000002"
+                  body: Cô xem giúp em phần phối màu của bài Mầm xanh tương lai với ạ.
       responses:
         "201":
           description: Đã gửi tin nhắn.
@@ -469,20 +556,20 @@ paths:
                   summary: Tin nhắn vừa gửi
                   value:
                     data:
-                      id: 36
+                      id: "50000000-0000-4000-8000-000000000001"
                       sender:
-                        id: 1
-                        username: linh.ve
-                        displayName: Nguyễn Gia Linh
+                        id: "00000000-0000-4000-8000-000000000001"
+                        username: minh.an
+                        displayName: Trần Minh An
                         role: STUDENT
-                        avatarUrl: https://images.example.com/avatars/linh.jpg
+                        avatarUrl: https://i.pravatar.cc/256?img=12
                       receiver:
-                        id: 2
-                        username: co.mai
-                        displayName: Cô Mai Anh
+                        id: "00000000-0000-4000-8000-000000000002"
+                        username: co.lan
+                        displayName: Cô Nguyễn Hoài Lan
                         role: TEACHER
-                        avatarUrl: https://images.example.com/avatars/mai.jpg
-                      body: Cô xem giúp em phần phối màu của bài này với ạ.
+                        avatarUrl: https://i.pravatar.cc/256?img=47
+                      body: Cô xem giúp em phần phối màu của bài Mầm xanh tương lai với ạ.
                       createdAt: "2026-07-24T09:12:00+07:00"
         "400":
           $ref: "#/components/responses/BadRequest"
@@ -540,17 +627,17 @@ paths:
                   value:
                     status: ANSWERED
                     intent: COUNT_POSTS_BY_TOPIC
-                    answer: Hiện có 8 bài viết về chủ đề “Phong cảnh”.
+                    answer: Hiện có 2 bài viết về chủ đề “Phong cảnh”.
                     provider: LOCAL
                     result:
-                      count: 8
+                      count: 2
                       topic:
-                        id: 2
+                        id: "10000000-0000-4000-8000-000000000001"
                         slug: phong-canh
                         name: Phong cảnh
                         aliases:
-                          - cảnh vật
-                          - landscape
+                          - Cảnh vật
+                          - Landscape
                 needsClarification:
                   summary: Chưa xác định được chủ đề
                   value:
@@ -580,8 +667,10 @@ components:
       in: header
       name: X-User-ID
       description: |
-        ID số nguyên dương của một tài khoản mẫu trong bảng `users`. Đây là cơ
-        chế chọn danh tính cho MVP, không phải API key hoặc auth production.
+        UUID của một tài khoản mẫu trong bảng `users`, gửi ở dạng chuỗi chuẩn có
+        dấu gạch ngang. Đây là cơ chế chọn danh tính cho MVP, không phải API key
+        hoặc auth production.
+      x-example: "00000000-0000-4000-8000-000000000001"
 
   parameters:
     Page:
@@ -643,7 +732,7 @@ components:
       description: ID chủ đề dùng để lọc bảng tin.
       schema:
         $ref: "#/components/schemas/ResourceId"
-      example: 2
+      example: "10000000-0000-4000-8000-000000000001"
 
     PeerId:
       name: peerId
@@ -652,7 +741,7 @@ components:
       description: ID tài khoản mẫu còn lại trong cuộc trò chuyện.
       schema:
         $ref: "#/components/schemas/ResourceId"
-      example: 2
+      example: "00000000-0000-4000-8000-000000000002"
 
     PostId:
       name: id
@@ -661,16 +750,20 @@ components:
       description: ID bài viết.
       schema:
         $ref: "#/components/schemas/ResourceId"
-      example: 18
+      example: "20000000-0000-4000-8000-000000000001"
 
   schemas:
     ResourceId:
-      type: integer
-      format: int64
-      minimum: 1
-      description: ID số nguyên dương do PostgreSQL identity sinh.
+      type: string
+      format: uuid
+      description: |
+        UUID PostgreSQL biểu diễn dưới dạng chuỗi. Client phải xem ID là giá trị
+        opaque, không chuyển sang số hoặc suy luận thứ tự từ ID.
       examples:
-        - 1
+        - "00000000-0000-4000-8000-000000000001"
+        - "10000000-0000-4000-8000-000000000001"
+        - "20000000-0000-4000-8000-000000000001"
+        - "50000000-0000-4000-8000-000000000001"
 
     HealthResponse:
       type: object
@@ -748,14 +841,14 @@ components:
           pattern: "^[a-z0-9._-]+$"
           description: Tên tài khoản duy nhất.
           examples:
-            - linh.ve
+            - minh.an
         displayName:
           type: string
           minLength: 1
           maxLength: 100
           description: Tên hiển thị.
           examples:
-            - Nguyễn Gia Linh
+            - Trần Minh An
         role:
           $ref: "#/components/schemas/UserRole"
         avatarUrl:
@@ -766,7 +859,7 @@ components:
           maxLength: 2048
           description: URL ảnh đại diện; có thể là null nếu chưa đặt.
           examples:
-            - https://images.example.com/avatars/linh.jpg
+            - https://i.pravatar.cc/256?img=12
 
     UserListResponse:
       type: object
@@ -816,8 +909,8 @@ components:
             minLength: 1
             maxLength: 100
           examples:
-            - - cảnh vật
-              - landscape
+            - - Cảnh vật
+              - Landscape
 
     TopicListResponse:
       type: object
@@ -855,28 +948,28 @@ components:
           maxLength: 120
           description: Tiêu đề bài thi vẽ.
           examples:
-            - Buổi sáng trên cánh đồng
+            - Mầm xanh tương lai
         caption:
           type: string
           minLength: 1
           maxLength: 2000
           description: Phần mô tả do người đăng nhập.
           examples:
-            - Bài dự thi em vẽ bằng màu nước trong 90 phút.
+            - Bài vẽ màu nước về những bàn tay cùng nâng niu một mầm cây xanh.
         imageUrl:
           type: string
           format: uri
           maxLength: 2048
           description: URL ảnh bài vẽ; MVP chưa hỗ trợ upload file.
           examples:
-            - https://images.example.com/art/canh-dong.jpg
+            - http://localhost:5173/demo-art/mam-xanh-tuong-lai.png
         examName:
           type: string
           minLength: 1
           maxLength: 160
           description: Tên cuộc thi hoặc bài kiểm tra, nếu có.
           examples:
-            - Sắc màu quê hương 2026
+            - Sắc màu xanh 2026
         author:
           $ref: "#/components/schemas/User"
         topics:
@@ -892,12 +985,12 @@ components:
           minimum: 0
           description: Tổng số tài khoản đã reaction bài viết.
           examples:
-            - 12
+            - 2
         viewerHasReacted:
           type: boolean
           description: Tài khoản trong `X-User-ID` đã reaction hay chưa.
           examples:
-            - true
+            - false
         createdAt:
           type: string
           format: date-time
@@ -979,7 +1072,7 @@ components:
           minimum: 0
           description: Tổng số reaction sau thao tác.
           examples:
-            - 13
+            - 3
         viewerHasReacted:
           type: boolean
           description: Trạng thái reaction của tài khoản hiện tại sau thao tác.
@@ -1017,7 +1110,7 @@ components:
           maxLength: 2000
           description: Nội dung thuần văn bản; frontend không render dưới dạng HTML.
           examples:
-            - Em thử tăng độ tương phản ở vùng tiền cảnh nhé.
+            - Em thử tăng độ tương phản ở vùng tiền cảnh nhé, bố cục đang rất tốt.
         createdAt:
           type: string
           format: date-time
@@ -1113,7 +1206,7 @@ components:
           minimum: 0
           description: Số bài viết khác nhau được gắn chủ đề.
           examples:
-            - 8
+            - 2
         topic:
           $ref: "#/components/schemas/Topic"
 
@@ -1136,7 +1229,7 @@ components:
           maxLength: 1000
           description: Câu trả lời tiếng Việt dạng thuần văn bản.
           examples:
-            - Hiện có 8 bài viết về chủ đề “Phong cảnh”.
+            - Hiện có 2 bài viết về chủ đề “Phong cảnh”.
         provider:
           $ref: "#/components/schemas/AssistantProvider"
         result:

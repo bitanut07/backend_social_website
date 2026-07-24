@@ -11,6 +11,11 @@ import (
 	"goravel/app/models"
 )
 
+const (
+	assistantRepositoryTestUserID           = "00000000-0000-4000-8000-000000000001"
+	assistantRepositoryTestLandscapeTopicID = "10000000-0000-4000-8000-000000000001"
+)
+
 type assistantQueryCall struct {
 	method string
 	value  any
@@ -112,7 +117,7 @@ func TestAssistantRepositoryResolveTopicByCanonicalName(t *testing.T) {
 	normalized := `phong canh" OR 1=1 --`
 	topicQuery := &assistantQueryFake{
 		firstTopic: models.Topic{
-			BaseModel:      models.BaseModel{ID: 2},
+			BaseModel:      models.BaseModel{ID: assistantRepositoryTestLandscapeTopicID},
 			Slug:           "phong-canh",
 			Name:           "Phong cảnh",
 			NormalizedName: "phong canh",
@@ -135,13 +140,22 @@ func TestAssistantRepositoryResolveTopicByCanonicalName(t *testing.T) {
 	if !found {
 		t.Fatal("ResolveTopic() found = false, want true")
 	}
-	if topic.ID != 2 || topic.Slug != "phong-canh" || topic.Name != "Phong cảnh" {
+	if topic.ID != assistantRepositoryTestLandscapeTopicID ||
+		topic.Slug != "phong-canh" ||
+		topic.Name != "Phong cảnh" {
 		t.Fatalf("ResolveTopic() topic = %#v", topic)
 	}
 	if len(topic.Aliases) != 2 || topic.Aliases[0] != "cảnh vật" || topic.Aliases[1] != "landscape" {
 		t.Fatalf("ResolveTopic() aliases = %#v", topic.Aliases)
 	}
 	assertAssistantQueryCall(t, topicQuery.calls, "Where", "normalized_name = ?", []any{normalized})
+	assertAssistantQueryCall(
+		t,
+		aliasQuery.calls,
+		"Where",
+		"topic_id = ?",
+		[]any{assistantRepositoryTestLandscapeTopicID},
+	)
 }
 
 func TestAssistantRepositoryResolveTopicByAlias(t *testing.T) {
@@ -150,7 +164,7 @@ func TestAssistantRepositoryResolveTopicByAlias(t *testing.T) {
 	canonicalQuery := &assistantQueryFake{firstErr: frameworkerrors.OrmRecordNotFound}
 	aliasLookupQuery := &assistantQueryFake{
 		firstTopic: models.Topic{
-			BaseModel:      models.BaseModel{ID: 2},
+			BaseModel:      models.BaseModel{ID: assistantRepositoryTestLandscapeTopicID},
 			Slug:           "phong-canh",
 			Name:           "Phong cảnh",
 			NormalizedName: "phong canh",
@@ -167,8 +181,13 @@ func TestAssistantRepositoryResolveTopicByAlias(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveTopic() error = %v", err)
 	}
-	if !found || topic.ID != 2 {
-		t.Fatalf("ResolveTopic() = (%#v, %v), want topic 2", topic, found)
+	if !found || topic.ID != assistantRepositoryTestLandscapeTopicID {
+		t.Fatalf(
+			"ResolveTopic() = (%#v, %v), want topic %s",
+			topic,
+			found,
+			assistantRepositoryTestLandscapeTopicID,
+		)
 	}
 	assertAssistantQueryCall(
 		t,
@@ -199,7 +218,7 @@ func TestAssistantRepositoryReturnsNotFoundForUnknownTopic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolveTopic() error = %v", err)
 	}
-	if found || topic.ID != 0 {
+	if found || topic.ID != "" {
 		t.Fatalf("ResolveTopic() = (%#v, %v), want not found", topic, found)
 	}
 }
@@ -211,7 +230,10 @@ func TestAssistantRepositoryCountPublishedPostsUsesDistinctAndParameters(t *test
 	database := &assistantDatabaseFake{queries: []assistantQuery{query}}
 	repository := newAssistantRepository(database)
 
-	count, err := repository.CountPublishedPostsByTopic(context.Background(), 9)
+	count, err := repository.CountPublishedPostsByTopic(
+		context.Background(),
+		assistantRepositoryTestLandscapeTopicID,
+	)
 
 	if err != nil {
 		t.Fatalf("CountPublishedPostsByTopic() error = %v", err)
@@ -226,7 +248,13 @@ func TestAssistantRepositoryCountPublishedPostsUsesDistinctAndParameters(t *test
 		"JOIN post_topics ON post_topics.post_id = posts.id",
 		nil,
 	)
-	assertAssistantQueryCall(t, query.calls, "Where", "post_topics.topic_id = ?", []any{uint64(9)})
+	assertAssistantQueryCall(
+		t,
+		query.calls,
+		"Where",
+		"post_topics.topic_id = ?",
+		[]any{assistantRepositoryTestLandscapeTopicID},
+	)
 	assertAssistantQueryCall(t, query.calls, "Where", "posts.status = ?", []any{models.PostStatusPublished})
 	assertAssistantQueryCall(t, query.calls, "Distinct", nil, []any{"posts.id"})
 }
@@ -253,12 +281,18 @@ func TestAssistantRepositoryChecksDemoUserWithBoundID(t *testing.T) {
 	database := &assistantDatabaseFake{queries: []assistantQuery{query}}
 	repository := newAssistantRepository(database)
 
-	exists, err := repository.UserExists(context.Background(), 42)
+	exists, err := repository.UserExists(context.Background(), assistantRepositoryTestUserID)
 
 	if err != nil || !exists {
 		t.Fatalf("UserExists() = (%v, %v), want (true, nil)", exists, err)
 	}
-	assertAssistantQueryCall(t, query.calls, "Where", "id = ?", []any{uint64(42)})
+	assertAssistantQueryCall(
+		t,
+		query.calls,
+		"Where",
+		"id = ?",
+		[]any{assistantRepositoryTestUserID},
+	)
 }
 
 func assertAssistantQueryCall(

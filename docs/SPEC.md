@@ -5,7 +5,8 @@
 Cung cấp REST API bằng Goravel cho mạng xã hội bài thi vẽ: người dùng mẫu, chủ
 đề, bài đăng, reaction, tin nhắn trực tiếp và trợ lý thống kê. Backend mặc định
 dùng PostgreSQL 17 và có `sql.sql` thuần PostgreSQL để tạo schema, index cùng dữ
-liệu mẫu trong database đã được chọn.
+liệu mẫu trong database đã được chọn. Mọi khóa tài nguyên công khai dùng UUID;
+phân trang, số lượng và mã trạng thái HTTP vẫn dùng số.
 
 ## Công nghệ
 
@@ -34,7 +35,21 @@ liệu mẫu trong database đã được chọn.
   schema, index và dữ liệu seed trong database đó.
 
 `sql.sql` không chứa lệnh meta của `psql`, không tạo database và không chuyển
-kết nối giữa các database.
+kết nối giữa các database. File dùng `CREATE TABLE IF NOT EXISTS`, không tự drop
+bảng và không chuyển schema `BIGINT` cũ sang `UUID`; preflight sẽ dừng sớm với
+thông báo rõ ràng nếu phát hiện cột khóa PK/FK của schema Artly cũ chưa dùng
+UUID.
+
+### Breaking reset từ schema BIGINT cũ
+
+Trước khi reset trên Supabase, phải backup/export dữ liệu cần giữ và xác nhận
+đúng project. Có thể kiểm tra `public.users.id` trong
+`information_schema.columns`; schema hiện tại phải có `data_type = 'uuid'`.
+Nếu database demo cũ trả `bigint`, drop đúng bảy bảng Artly theo thứ tự
+`messages`, `reactions`, `post_topics`, `posts`, `topic_aliases`, `topics`,
+`users`, rồi chạy lại toàn bộ `sql.sql`. Không drop schema `public`. Quy trình
+và câu lệnh reset đầy đủ nằm trong `README.md`; database có dữ liệu thật phải
+dùng migration ánh xạ ID riêng thay vì reset.
 
 ## Cấu trúc
 
@@ -49,6 +64,10 @@ routes/                Route `/api/v1`
 docs/openapi.yaml      Hợp đồng API
 sql.sql                SQL PostgreSQL thuần tạo schema + index + seed
 ```
+
+Migration tương thích `20260724000002_enforce_artly_uuid_schema` chạy cả với
+ledger đã ghi nhận migration tạo bảng cũ. Nó từ chối schema khóa số với thông
+báo backup/reset, và tạo lại schema UUID sau khi các bảng demo cũ đã được reset.
 
 ## Quy ước code
 
@@ -68,6 +87,8 @@ func ErrorResponse(ctx http.Context, status int, code, message string, details a
 
 ## Data model
 
+- Các PK/FK tài nguyên dùng kiểu PostgreSQL `UUID`, mặc định
+  `gen_random_uuid()`. Seed dùng UUID v4 cố định để test và ví dụ lặp lại.
 - `users`: tài khoản mẫu với role `STUDENT`/`TEACHER`.
 - `topics`, `topic_aliases`: chủ đề chuẩn hóa và cách gọi tương đương.
 - `posts`, `post_topics`: bài đăng và quan hệ nhiều chủ đề.
@@ -79,17 +100,23 @@ func ErrorResponse(ctx http.Context, status int, code, message string, details a
 - `GET /api/v1/health`
 - `GET /api/v1/users`
 - `GET /api/v1/topics`
-- `GET /api/v1/posts?page=1&pageSize=10&topicId=...`
+- `GET /api/v1/posts?page=1&pageSize=10&topicId=10000000-0000-4000-8000-000000000001`
 - `POST /api/v1/posts`
-- `PUT /api/v1/posts/{id}/reaction`
-- `DELETE /api/v1/posts/{id}/reaction`
-- `GET /api/v1/messages?peerId=...&page=1&pageSize=50`
+- `PUT /api/v1/posts/20000000-0000-4000-8000-000000000001/reaction`
+- `DELETE /api/v1/posts/20000000-0000-4000-8000-000000000001/reaction`
+- `GET /api/v1/messages?peerId=00000000-0000-4000-8000-000000000002&page=1&pageSize=50`
 - `POST /api/v1/messages`
 - `POST /api/v1/assistant/questions`
 
 `GET /posts`, hai endpoint `/messages`, các endpoint ghi dữ liệu và trợ lý yêu
-cầu header `X-User-ID` trỏ tới user mẫu. Đây là cơ chế demo có chủ ý, không
-phải auth production.
+cầu header `X-User-ID` trỏ tới UUID user mẫu, ví dụ
+`00000000-0000-4000-8000-000000000001`. Đây là cơ chế demo có chủ ý, không phải
+auth production.
+
+`ResourceId` trong JSON, header, path và query là chuỗi có `format: uuid`.
+Frontend phải xem ID là opaque string; không ép sang số. Các trường `page`,
+`pageSize`, `totalItems`, `totalPages`, `reactionCount`, `count` và status HTTP
+tiếp tục là số.
 
 Response danh sách:
 
@@ -145,7 +172,7 @@ Response lỗi:
 ## Tiêu chí hoàn thành
 
 - `sql.sql` chạy được bằng `psql` hoặc Query Editor với PostgreSQL 17; database
-  đích phải được tạo/chọn trước, còn file tạo schema, index và dữ liệu mẫu.
+  đích phải được tạo/chọn trước, còn file tạo schema UUID, index và dữ liệu mẫu.
 - API đáp ứng đủ bài đăng, reaction, tin nhắn và thống kê chủ đề.
 - Không cần API key vẫn trả lời được câu hỏi mẫu.
 - Có API key thì dùng Responses API và fallback an toàn khi lỗi.

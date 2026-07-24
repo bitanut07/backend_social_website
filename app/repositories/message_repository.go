@@ -17,7 +17,7 @@ func NewMessageRepository() *MessageRepository {
 	return &MessageRepository{}
 }
 
-func (r *MessageRepository) UserExists(ctx context.Context, userID uint64) (bool, error) {
+func (r *MessageRepository) UserExists(ctx context.Context, userID string) (bool, error) {
 	count, err := facades.Orm().
 		WithContext(ctx).
 		Query().
@@ -33,8 +33,8 @@ func (r *MessageRepository) UserExists(ctx context.Context, userID uint64) (bool
 
 func (r *MessageRepository) ListConversation(
 	ctx context.Context,
-	currentUserID uint64,
-	peerID uint64,
+	currentUserID string,
+	peerID string,
 	page int,
 	pageSize int,
 ) ([]models.Message, int64, error) {
@@ -66,8 +66,8 @@ func (r *MessageRepository) ListConversation(
 
 func (r *MessageRepository) Create(
 	ctx context.Context,
-	senderID uint64,
-	receiverID uint64,
+	senderID string,
+	receiverID string,
 	body string,
 ) (models.Message, error) {
 	message := models.Message{

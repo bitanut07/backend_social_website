@@ -13,19 +13,19 @@ var (
 )
 
 type MessageRepository interface {
-	UserExists(ctx context.Context, userID uint64) (bool, error)
+	UserExists(ctx context.Context, userID string) (bool, error)
 	ListConversation(
 		ctx context.Context,
-		currentUserID uint64,
-		peerID uint64,
+		currentUserID string,
+		peerID string,
 		page int,
 		pageSize int,
 	) ([]models.Message, int64, error)
-	Create(ctx context.Context, senderID uint64, receiverID uint64, body string) (models.Message, error)
+	Create(ctx context.Context, senderID string, receiverID string, body string) (models.Message, error)
 }
 
 type MessageUserDTO struct {
-	ID          uint64  `json:"id"`
+	ID          string  `json:"id"`
 	Username    string  `json:"username"`
 	DisplayName string  `json:"displayName"`
 	Role        string  `json:"role"`
@@ -33,7 +33,7 @@ type MessageUserDTO struct {
 }
 
 type MessageDTO struct {
-	ID        uint64         `json:"id"`
+	ID        string         `json:"id"`
 	Sender    MessageUserDTO `json:"sender"`
 	Receiver  MessageUserDTO `json:"receiver"`
 	Body      string         `json:"body"`
@@ -55,8 +55,8 @@ func NewMessageService(repository MessageRepository) *MessageService {
 
 func (s *MessageService) List(
 	ctx context.Context,
-	currentUserID uint64,
-	peerID uint64,
+	currentUserID string,
+	peerID string,
 	page int,
 	pageSize int,
 ) (MessageListResult, error) {
@@ -94,8 +94,8 @@ func (s *MessageService) List(
 
 func (s *MessageService) Create(
 	ctx context.Context,
-	currentUserID uint64,
-	recipientID uint64,
+	currentUserID string,
+	recipientID string,
 	body string,
 ) (MessageDTO, error) {
 	if err := s.requireCurrentUser(ctx, currentUserID); err != nil {
@@ -116,7 +116,7 @@ func (s *MessageService) Create(
 	return messageDTOFromModel(message), nil
 }
 
-func (s *MessageService) requireCurrentUser(ctx context.Context, userID uint64) error {
+func (s *MessageService) requireCurrentUser(ctx context.Context, userID string) error {
 	exists, err := s.repository.UserExists(ctx, userID)
 	if err != nil {
 		return err
@@ -128,7 +128,7 @@ func (s *MessageService) requireCurrentUser(ctx context.Context, userID uint64) 
 	return nil
 }
 
-func (s *MessageService) requirePeer(ctx context.Context, userID uint64) error {
+func (s *MessageService) requirePeer(ctx context.Context, userID string) error {
 	exists, err := s.repository.UserExists(ctx, userID)
 	if err != nil {
 		return err

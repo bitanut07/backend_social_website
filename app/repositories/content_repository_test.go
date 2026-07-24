@@ -11,6 +11,13 @@ import (
 	"goravel/app/models"
 )
 
+const (
+	contentRepositoryUserID  = "00000000-0000-4000-8000-000000000001"
+	contentRepositoryTopicID = "10000000-0000-4000-8000-000000000001"
+	contentRepositoryPostID  = "20000000-0000-4000-8000-000000000001"
+	contentRepositoryNewPost = "20000000-0000-4000-8000-000000000002"
+)
+
 type recordingContentDB struct {
 	contractsdb.DB
 	query            contractsdb.Query
@@ -98,7 +105,7 @@ type recordingContentTx struct {
 	contractsdb.Tx
 	query          contractsdb.Query
 	selectErr      error
-	selectedPostID int64
+	selectedPostID string
 	selects        []recordedRawSelect
 }
 
@@ -131,9 +138,15 @@ func TestContentRepositoryListPostsUsesStableOrderAndBoundTopicFilter(t *testing
 	query := &recordingContentQuery{paginateErr: stopAfterQuery}
 	database := &recordingContentDB{query: query}
 	repository := NewContentRepository(database)
-	topicID := int64(17)
+	topicID := contentRepositoryTopicID
 
-	_, _, err := repository.ListPosts(context.Background(), 4, 2, 10, &topicID)
+	_, _, err := repository.ListPosts(
+		context.Background(),
+		contentRepositoryUserID,
+		2,
+		10,
+		&topicID,
+	)
 
 	if !errors.Is(err, stopAfterQuery) {
 		t.Fatalf("ListPosts error = %v, want query sentinel", err)
@@ -171,11 +184,11 @@ func TestContentRepositoryMutationsStartTransactions(t *testing.T) {
 		{
 			name: "create post",
 			call: func(repository *GoravelContentRepository) error {
-				_, err := repository.CreatePost(context.Background(), 1, CreatePostInput{
+				_, err := repository.CreatePost(context.Background(), contentRepositoryUserID, CreatePostInput{
 					Title:    "Bình minh",
 					Caption:  "Màu nước.",
 					ImageURL: "https://example.com/art.jpg",
-					TopicIDs: []int64{2},
+					TopicIDs: []string{contentRepositoryTopicID},
 				})
 				return err
 			},
@@ -183,14 +196,22 @@ func TestContentRepositoryMutationsStartTransactions(t *testing.T) {
 		{
 			name: "put reaction",
 			call: func(repository *GoravelContentRepository) error {
-				_, err := repository.PutReaction(context.Background(), 1, 9)
+				_, err := repository.PutReaction(
+					context.Background(),
+					contentRepositoryUserID,
+					contentRepositoryPostID,
+				)
 				return err
 			},
 		},
 		{
 			name: "delete reaction",
 			call: func(repository *GoravelContentRepository) error {
-				_, err := repository.DeleteReaction(context.Background(), 1, 9)
+				_, err := repository.DeleteReaction(
+					context.Background(),
+					contentRepositoryUserID,
+					contentRepositoryPostID,
+				)
 				return err
 			},
 		},
@@ -226,15 +247,19 @@ func TestInsertPostReturningIDUsesPostgreSQLReturningAndBoundValues(t *testing.T
 		ImageURL: "https://example.com/art.jpg",
 		ExamName: &examName,
 	}
-	transaction := &recordingContentTx{selectedPostID: 42}
+	transaction := &recordingContentTx{selectedPostID: contentRepositoryNewPost}
 
-	postID, err := insertPostReturningID(transaction, 7, input)
+	postID, err := insertPostReturningID(transaction, contentRepositoryUserID, input)
 
 	if err != nil {
 		t.Fatalf("insertPostReturningID error = %v", err)
 	}
-	if postID != 42 {
-		t.Fatalf("insertPostReturningID post ID = %d, want 42", postID)
+	if postID != contentRepositoryNewPost {
+		t.Fatalf(
+			"insertPostReturningID post ID = %q, want %q",
+			postID,
+			contentRepositoryNewPost,
+		)
 	}
 	if len(transaction.selects) != 1 {
 		t.Fatalf("raw select calls = %d, want 1", len(transaction.selects))
@@ -254,7 +279,7 @@ RETURNING id`
 	}
 
 	wantArgs := []any{
-		int64(7),
+		contentRepositoryUserID,
 		input.Title,
 		input.Caption,
 		input.ImageURL,
@@ -279,7 +304,7 @@ func TestCreatePostReturnsPostgreSQLInsertError(t *testing.T) {
 		ImageURL: "https://example.com/art.jpg",
 	}
 
-	post, err := repository.CreatePost(context.Background(), 9, input)
+	post, err := repository.CreatePost(context.Background(), contentRepositoryUserID, input)
 
 	if !errors.Is(err, insertFailure) {
 		t.Fatalf("CreatePost error = %v, want insert failure", err)
@@ -294,7 +319,7 @@ func TestCreatePostReturnsPostgreSQLInsertError(t *testing.T) {
 		t.Fatalf("raw select calls = %d, want 1", len(transaction.selects))
 	}
 	if !reflect.DeepEqual(transaction.selects[0].args, []any{
-		int64(9),
+		contentRepositoryUserID,
 		input.Title,
 		input.Caption,
 		input.ImageURL,
@@ -315,7 +340,11 @@ func TestPutReactionIdempotentlyAcceptsAConcurrentWinner(t *testing.T) {
 	}
 	transaction := &recordingContentTx{query: query}
 
-	err := putReactionIdempotently(transaction, 3, 25)
+	err := putReactionIdempotently(
+		transaction,
+		contentRepositoryUserID,
+		contentRepositoryPostID,
+	)
 
 	if err != nil {
 		t.Fatalf("putReactionIdempotently error = %v, want success because reaction exists", err)
@@ -324,7 +353,10 @@ func TestPutReactionIdempotentlyAcceptsAConcurrentWinner(t *testing.T) {
 		t.Fatalf("locking existence checks = %d, want 1", query.lockCalls)
 	}
 	if len(query.wheres) != 1 ||
-		!reflect.DeepEqual(query.wheres[0].query, map[string]any{"post_id": int64(25), "user_id": int64(3)}) {
+		!reflect.DeepEqual(query.wheres[0].query, map[string]any{
+			"post_id": contentRepositoryPostID,
+			"user_id": contentRepositoryUserID,
+		}) {
 		t.Fatalf("retry lookup = %#v, want bound post/user identity", query.wheres)
 	}
 }
@@ -335,7 +367,7 @@ func TestPublishedPostExistsForUpdateLocksParentRow(t *testing.T) {
 	query := &recordingContentQuery{exists: true}
 	transaction := &recordingContentTx{query: query}
 
-	exists, err := publishedPostExistsForUpdate(transaction, 25)
+	exists, err := publishedPostExistsForUpdate(transaction, contentRepositoryPostID)
 
 	if err != nil {
 		t.Fatalf("publishedPostExistsForUpdate error = %v", err)
@@ -362,11 +394,24 @@ func TestEmptyContentCollectionsRemainJSONArrays(t *testing.T) {
 		t.Fatalf("topics = %#v, want non-nil empty slice", topics)
 	}
 
-	posts, err := hydratePosts(nil, nil, 1)
+	posts, err := hydratePosts(nil, nil, contentRepositoryUserID)
 	if err != nil {
 		t.Fatalf("hydratePosts error: %v", err)
 	}
 	if posts == nil || len(posts) != 0 {
 		t.Fatalf("posts = %#v, want non-nil empty slice", posts)
+	}
+}
+
+func TestStringValuesKeepsUUIDsAsBoundValues(t *testing.T) {
+	t.Parallel()
+
+	values := []string{contentRepositoryTopicID, contentRepositoryPostID}
+
+	if got := stringValues(values); !reflect.DeepEqual(got, []any{
+		contentRepositoryTopicID,
+		contentRepositoryPostID,
+	}) {
+		t.Fatalf("stringValues() = %#v, want UUID strings as bound values", got)
 	}
 }

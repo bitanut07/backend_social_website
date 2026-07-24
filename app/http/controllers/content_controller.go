@@ -34,17 +34,17 @@ type ContentServiceContract interface {
 	ListTopics(ctx context.Context, page, pageSize int) ([]repositories.Topic, int64, error)
 	ListPosts(
 		ctx context.Context,
-		viewerID int64,
+		viewerID string,
 		page, pageSize int,
-		topicID *int64,
+		topicID *string,
 	) ([]repositories.Post, int64, error)
 	CreatePost(
 		ctx context.Context,
-		userID int64,
+		userID string,
 		input repositories.CreatePostInput,
 	) (repositories.Post, error)
-	PutReaction(ctx context.Context, userID, postID int64) (repositories.ReactionState, error)
-	DeleteReaction(ctx context.Context, userID, postID int64) (repositories.ReactionState, error)
+	PutReaction(ctx context.Context, userID, postID string) (repositories.ReactionState, error)
+	DeleteReaction(ctx context.Context, userID, postID string) (repositories.ReactionState, error)
 }
 
 type ContentController struct {
@@ -284,45 +284,42 @@ func contentPagination(
 	return page, pageSize, nil
 }
 
-func parseOptionalResourceID(raw, field string) (*int64, *inputError) {
+func parseOptionalResourceID(raw, field string) (*string, *inputError) {
 	value := strings.TrimSpace(raw)
 	if value == "" {
 		return nil, nil
 	}
 
-	id, err := strconv.ParseInt(value, 10, 64)
+	id, err := support.ParseResourceID(value)
 	if err != nil {
 		return nil, malformedInputError(field, err)
-	}
-	if id <= 0 {
-		return nil, validationInputError(field, "ID phải là số nguyên dương.")
 	}
 
 	return &id, nil
 }
 
-func parseRequiredResourceID(raw, field string) (int64, *inputError) {
+func parseRequiredResourceID(raw, field string) (string, *inputError) {
 	if strings.TrimSpace(raw) == "" {
-		return 0, malformedInputError(field, errors.New("missing resource id"))
+		return "", malformedInputError(field, errors.New("missing resource id"))
 	}
 
 	id, err := parseOptionalResourceID(raw, field)
 	if err != nil {
-		return 0, err
+		return "", err
 	}
 	if id == nil {
-		return 0, validationInputError(field, "ID là bắt buộc.")
+		return "", malformedInputError(field, errors.New("missing resource id"))
 	}
 
 	return *id, nil
 }
 
 type createPostPayload struct {
-	Title    *string  `json:"title"`
-	Caption  *string  `json:"caption"`
-	ImageURL *string  `json:"imageUrl"`
-	ExamName *string  `json:"examName"`
-	TopicIDs *[]int64 `json:"topicIds"`
+	Title    *string   `json:"title"`
+	Caption  *string   `json:"caption"`
+	ImageURL *string   `json:"imageUrl"`
+	ExamName *string   `json:"examName"`
+	TopicIDs *[]string `json:"topicIds"`
 }
 
 func decodeAndValidateCreatePost(reader io.Reader) (repositories.CreatePostInput, *inputError) {
@@ -397,21 +394,21 @@ func validateCreatePostPayload(
 		}
 	}
 
-	topicIDs := make([]int64, 0)
+	topicIDs := make([]string, 0)
 	if payload.TopicIDs == nil {
 		fields["topicIds"] = []string{"Danh sách chủ đề là bắt buộc."}
 	} else {
-		topicIDs = append(topicIDs, (*payload.TopicIDs)...)
 		switch {
-		case len(topicIDs) < 1:
+		case len(*payload.TopicIDs) < 1:
 			fields["topicIds"] = []string{"Cần chọn ít nhất một chủ đề."}
-		case len(topicIDs) > 5:
+		case len(*payload.TopicIDs) > 5:
 			fields["topicIds"] = []string{"Chỉ được chọn tối đa năm chủ đề."}
 		default:
-			seen := make(map[int64]struct{}, len(topicIDs))
-			for _, topicID := range topicIDs {
-				if topicID <= 0 {
-					fields["topicIds"] = []string{"Mỗi ID chủ đề phải là số nguyên dương."}
+			seen := make(map[string]struct{}, len(*payload.TopicIDs))
+			for _, rawTopicID := range *payload.TopicIDs {
+				topicID, err := support.ParseResourceID(rawTopicID)
+				if err != nil {
+					fields["topicIds"] = []string{"Mỗi ID chủ đề phải là một UUID hợp lệ."}
 					break
 				}
 				if _, exists := seen[topicID]; exists {
@@ -419,6 +416,7 @@ func validateCreatePostPayload(
 					break
 				}
 				seen[topicID] = struct{}{}
+				topicIDs = append(topicIDs, topicID)
 			}
 		}
 	}

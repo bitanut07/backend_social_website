@@ -26,7 +26,7 @@ const (
 var errMalformedAssistantJSON = errors.New("malformed assistant request JSON")
 
 type assistantQuestionService interface {
-	Ask(context.Context, uint64, string) (services.AssistantResponse, error)
+	Ask(context.Context, string, string) (services.AssistantResponse, error)
 }
 
 type AssistantController struct {
@@ -83,7 +83,7 @@ func (c *AssistantController) Ask(ctx http.Context) http.Response {
 		return assistantValidationResponse(ctx, "Câu hỏi không được vượt quá 500 ký tự.")
 	}
 
-	result, err := c.service.Ask(ctx, uint64(userID), question)
+	result, err := c.service.Ask(ctx, userID, question)
 	if errors.Is(err, services.ErrDemoUserRequired) {
 		return demoUserRequiredResponse(ctx)
 	}
