@@ -6,6 +6,9 @@ const (
 
 	PostStatusPublished = "PUBLISHED"
 	PostStatusArchived  = "ARCHIVED"
+	PostStatusRemoved   = "REMOVED"
+
+	CommentStatusVisible = "VISIBLE"
 
 	ReactionTypeLike = "LIKE"
 	ReactionTypeLove = "LOVE"

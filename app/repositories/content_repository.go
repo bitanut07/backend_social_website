@@ -13,17 +13,21 @@ import (
 
 var ErrNotFound = errors.New("không tìm thấy tài nguyên")
 
+var ErrForbidden = errors.New("không có quyền thực hiện thao tác")
+
 var errReactionStateNotPersisted = errors.New("không thể lưu trạng thái reaction")
 
 const insertPostReturningIDSQL = `INSERT INTO posts (
 	user_id,
 	title,
 	caption,
-	image_url,
 	exam_name,
-	status
-) VALUES ($1, $2, $3, $4, $5, $6)
+	status,
+	published_at
+) VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
 RETURNING id`
+
+const defaultLikeReactionTypeID = "10000000-0000-4000-8000-000000000001"
 
 type User struct {
 	ID          string  `json:"id"`
@@ -49,6 +53,7 @@ type Post struct {
 	Author           User      `json:"author"`
 	Topics           []Topic   `json:"topics"`
 	ReactionCount    int64     `json:"reactionCount"`
+	CommentCount     int64     `json:"commentCount"`
 	ViewerHasReacted bool      `json:"viewerHasReacted"`
 	CreatedAt        time.Time `json:"createdAt"`
 }
@@ -61,6 +66,12 @@ type CreatePostInput struct {
 	TopicIDs []string
 }
 
+type UpdateProfileInput struct {
+	Username    string
+	DisplayName string
+	AvatarURL   *string
+}
+
 type ReactionState struct {
 	ReactionCount    int64 `json:"reactionCount"`
 	ViewerHasReacted bool  `json:"viewerHasReacted"`
@@ -68,6 +79,8 @@ type ReactionState struct {
 
 type ContentRepository interface {
 	ListUsers(ctx context.Context, page, pageSize int) ([]User, int64, error)
+	UserByUsername(ctx context.Context, username string) (User, error)
+	UpdateProfile(ctx context.Context, userID string, input UpdateProfileInput) (User, error)
 	ListTopics(ctx context.Context, page, pageSize int) ([]Topic, int64, error)
 	UserExists(ctx context.Context, userID string) (bool, error)
 	TopicExists(ctx context.Context, topicID string) (bool, error)
@@ -77,9 +90,10 @@ type ContentRepository interface {
 		ctx context.Context,
 		viewerID string,
 		page, pageSize int,
-		topicID *string,
+		topicID, authorID *string,
 	) ([]Post, int64, error)
 	CreatePost(ctx context.Context, userID string, input CreatePostInput) (Post, error)
+	DeletePost(ctx context.Context, userID, postID string) error
 	PutReaction(ctx context.Context, userID, postID string) (ReactionState, error)
 	DeleteReaction(ctx context.Context, userID, postID string) (ReactionState, error)
 }
@@ -103,11 +117,19 @@ func (r *GoravelContentRepository) ListUsers(
 	rows := make([]userRow, 0)
 	var total int64
 
-	err := r.database.WithContext(ctx).
+	database := r.database.WithContext(ctx)
+	count, err := database.Table("users").Count()
+	if err != nil {
+		return nil, 0, err
+	}
+	total = count
+	err = database.
 		Table("users").
 		Select("id", "username", "display_name", "role", "avatar_url").
 		OrderBy("id").
-		Paginate(page, pageSize, &rows, &total)
+		Offset(pageOffset(page, pageSize)).
+		Limit(uint64(pageSize)).
+		Get(&rows)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -120,6 +142,70 @@ func (r *GoravelContentRepository) ListUsers(
 	return users, total, nil
 }
 
+func (r *GoravelContentRepository) UserByUsername(ctx context.Context, username string) (User, error) {
+	rows := make([]userRow, 0, 1)
+	err := r.database.WithContext(ctx).
+		Table("users").
+		Select("id", "username", "display_name", "role", "avatar_url").
+		Where("username", username).
+		Limit(1).
+		Get(&rows)
+	if err != nil {
+		return User{}, err
+	}
+	if len(rows) == 0 {
+		return User{}, ErrNotFound
+	}
+
+	return rows[0].toUser(), nil
+}
+
+func (r *GoravelContentRepository) UpdateProfile(
+	ctx context.Context,
+	userID string,
+	input UpdateProfileInput,
+) (User, error) {
+	updated := User{}
+
+	err := r.database.WithContext(ctx).Transaction(func(tx db.Tx) error {
+		result, err := tx.Table("users").
+			Where("id", userID).
+			Update(map[string]any{
+				"username":     input.Username,
+				"display_name": input.DisplayName,
+				"avatar_url":   input.AvatarURL,
+				"updated_at":   time.Now().UTC(),
+			})
+		if err != nil {
+			return err
+		}
+		if result == nil || result.RowsAffected != 1 {
+			return ErrNotFound
+		}
+
+		rows := make([]userRow, 0, 1)
+		err = tx.Table("users").
+			Select("id", "username", "display_name", "role", "avatar_url").
+			Where("id", userID).
+			Limit(1).
+			Get(&rows)
+		if err != nil {
+			return err
+		}
+		if len(rows) == 0 {
+			return ErrNotFound
+		}
+
+		updated = rows[0].toUser()
+		return nil
+	})
+	if err != nil {
+		return User{}, err
+	}
+
+	return updated, nil
+}
+
 func (r *GoravelContentRepository) ListTopics(
 	ctx context.Context,
 	page, pageSize int,
@@ -128,11 +214,18 @@ func (r *GoravelContentRepository) ListTopics(
 	rows := make([]topicRow, 0)
 	var total int64
 
-	err := database.
+	count, err := database.Table("topics").Count()
+	if err != nil {
+		return nil, 0, err
+	}
+	total = count
+	err = database.
 		Table("topics").
 		Select("id", "slug", "name").
 		OrderBy("id").
-		Paginate(page, pageSize, &rows, &total)
+		Offset(pageOffset(page, pageSize)).
+		Limit(uint64(pageSize)).
+		Get(&rows)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -199,22 +292,47 @@ func (r *GoravelContentRepository) ListPosts(
 	ctx context.Context,
 	viewerID string,
 	page, pageSize int,
-	topicID *string,
+	topicID, authorID *string,
 ) ([]Post, int64, error) {
 	database := r.database.WithContext(ctx)
+	countQuery := database.
+		Table("posts").
+		Join("post_media AS media ON media.post_id = posts.id AND media.position = 0").
+		Where("posts.status", models.PostStatusPublished).
+		WhereNull("posts.deleted_at")
+	if topicID != nil {
+		countQuery = countQuery.
+			Join("post_topics AS selected_topic ON selected_topic.post_id = posts.id").
+			Where("selected_topic.topic_id", *topicID)
+	}
+	if authorID != nil {
+		countQuery = countQuery.Where("posts.user_id", *authorID)
+	}
+	total, err := countQuery.Count()
+	if err != nil {
+		return nil, 0, err
+	}
+
 	query := postBaseQuery(database).
 		Where("posts.status", models.PostStatusPublished).
-		OrderByDesc("posts.created_at").
-		OrderByDesc("posts.id")
+		WhereNull("posts.deleted_at")
 	if topicID != nil {
 		query = query.
 			Join("post_topics AS selected_topic ON selected_topic.post_id = posts.id").
 			Where("selected_topic.topic_id", *topicID)
 	}
+	if authorID != nil {
+		query = query.Where("posts.user_id", *authorID)
+	}
 
 	rows := make([]postRow, 0)
-	var total int64
-	if err := query.Paginate(page, pageSize, &rows, &total); err != nil {
+	err = query.
+		OrderByDesc("posts.created_at").
+		OrderByDesc("posts.id").
+		Offset(pageOffset(page, pageSize)).
+		Limit(uint64(pageSize)).
+		Get(&rows)
+	if err != nil {
 		return nil, 0, err
 	}
 
@@ -235,6 +353,16 @@ func (r *GoravelContentRepository) CreatePost(
 
 	err := r.database.WithContext(ctx).Transaction(func(tx db.Tx) error {
 		postID, err := insertPostReturningID(tx, userID, input)
+		if err != nil {
+			return err
+		}
+
+		_, err = tx.Table("post_media").Insert(map[string]any{
+			"post_id":    postID,
+			"media_type": "IMAGE",
+			"media_url":  input.ImageURL,
+			"position":   0,
+		})
 		if err != nil {
 			return err
 		}
@@ -260,6 +388,48 @@ func (r *GoravelContentRepository) CreatePost(
 	return created, nil
 }
 
+func (r *GoravelContentRepository) DeletePost(
+	ctx context.Context,
+	userID, postID string,
+) error {
+	return r.database.WithContext(ctx).Transaction(func(tx db.Tx) error {
+		owners := make([]postOwnerRow, 0, 1)
+		err := tx.Table("posts").
+			Select("user_id").
+			Where("id", postID).
+			WhereNull("deleted_at").
+			LockForUpdate().
+			Limit(1).
+			Get(&owners)
+		if err != nil {
+			return err
+		}
+		if len(owners) == 0 {
+			return ErrNotFound
+		}
+		if owners[0].UserID != userID {
+			return ErrForbidden
+		}
+
+		result, err := tx.Table("posts").
+			Where("id", postID).
+			Where("user_id", userID).
+			WhereNull("deleted_at").
+			Update(map[string]any{
+				"status":     models.PostStatusRemoved,
+				"deleted_at": time.Now().UTC(),
+			})
+		if err != nil {
+			return err
+		}
+		if result == nil || result.RowsAffected != 1 {
+			return ErrNotFound
+		}
+
+		return nil
+	})
+}
+
 func insertPostReturningID(source db.Tx, userID string, input CreatePostInput) (string, error) {
 	row := insertedPostIDRow{}
 	err := source.Select(
@@ -268,7 +438,6 @@ func insertPostReturningID(source db.Tx, userID string, input CreatePostInput) (
 		userID,
 		input.Title,
 		input.Caption,
-		input.ImageURL,
 		input.ExamName,
 		models.PostStatusPublished,
 	)
@@ -298,7 +467,7 @@ func (r *GoravelContentRepository) PutReaction(
 			return err
 		}
 
-		count, err := tx.Table("reactions").
+		count, err := tx.Table("post_reactions").
 			Where("post_id", postID).
 			Count()
 		if err != nil {
@@ -333,7 +502,7 @@ func (r *GoravelContentRepository) DeleteReaction(
 			return ErrNotFound
 		}
 
-		_, err = tx.Table("reactions").
+		_, err = tx.Table("post_reactions").
 			Where("post_id", postID).
 			Where("user_id", userID).
 			Delete()
@@ -341,7 +510,7 @@ func (r *GoravelContentRepository) DeleteReaction(
 			return err
 		}
 
-		count, err := tx.Table("reactions").
+		count, err := tx.Table("post_reactions").
 			Where("post_id", postID).
 			Count()
 		if err != nil {
@@ -370,6 +539,10 @@ type userRow struct {
 }
 
 type insertedPostIDRow struct {
+	ID string `db:"id"`
+}
+
+type lockedResourceRow struct {
 	ID string `db:"id"`
 }
 
@@ -408,6 +581,10 @@ type postRow struct {
 	AuthorAvatarURL   *string   `db:"author_avatar_url"`
 }
 
+type postOwnerRow struct {
+	UserID string `db:"user_id"`
+}
+
 type postTopicRow struct {
 	PostID string `db:"post_id"`
 	ID     string `db:"id"`
@@ -416,6 +593,11 @@ type postTopicRow struct {
 }
 
 type reactionCountRow struct {
+	PostID string `db:"post_id"`
+	Total  int64  `db:"total"`
+}
+
+type commentCountRow struct {
 	PostID string `db:"post_id"`
 	Total  int64  `db:"total"`
 }
@@ -478,11 +660,12 @@ func loadAliases(source db.Tx, topicIDs []string) (map[string][]string, error) {
 func postBaseQuery(source db.Tx) db.Query {
 	return source.Table("posts").
 		Join("users ON users.id = posts.user_id").
+		Join("post_media AS media ON media.post_id = posts.id AND media.position = 0").
 		Select(
 			"posts.id AS id",
 			"posts.title AS title",
 			"posts.caption AS caption",
-			"posts.image_url AS image_url",
+			"COALESCE(media.media_url, '') AS image_url",
 			"posts.exam_name AS exam_name",
 			"posts.created_at AS created_at",
 			"users.id AS author_id",
@@ -534,6 +717,10 @@ func hydratePosts(source db.Tx, rows []postRow, viewerID string) ([]Post, error)
 	if err != nil {
 		return nil, err
 	}
+	commentCounts, err := loadCommentCounts(source, postIDs)
+	if err != nil {
+		return nil, err
+	}
 	viewerReactions, err := loadViewerReactions(source, postIDs, viewerID)
 	if err != nil {
 		return nil, err
@@ -557,6 +744,7 @@ func hydratePosts(source db.Tx, rows []postRow, viewerID string) ([]Post, error)
 			},
 			Topics:           topicsByPost[row.ID],
 			ReactionCount:    reactionCounts[row.ID],
+			CommentCount:     commentCounts[row.ID],
 			ViewerHasReacted: hasReacted,
 		})
 	}
@@ -616,9 +804,31 @@ func loadReactionCounts(source db.Tx, postIDs []string) (map[string]int64, error
 	counts := make(map[string]int64, len(postIDs))
 	rows := make([]reactionCountRow, 0)
 
-	err := source.Table("reactions").
+	err := source.Table("post_reactions").
 		Select("post_id", "COUNT(*) AS total").
 		WhereIn("post_id", stringValues(postIDs)).
+		GroupBy("post_id").
+		Get(&rows)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, row := range rows {
+		counts[row.PostID] = row.Total
+	}
+
+	return counts, nil
+}
+
+func loadCommentCounts(source db.Tx, postIDs []string) (map[string]int64, error) {
+	counts := make(map[string]int64, len(postIDs))
+	rows := make([]commentCountRow, 0)
+
+	err := source.Table("comments").
+		Select("post_id", "COUNT(*) AS total").
+		WhereIn("post_id", stringValues(postIDs)).
+		Where("status", models.CommentStatusVisible).
+		WhereNull("deleted_at").
 		GroupBy("post_id").
 		Get(&rows)
 	if err != nil {
@@ -638,7 +848,7 @@ func loadViewerReactions(
 	viewerID string,
 ) (map[string]struct{}, error) {
 	var reactedPostIDs []string
-	err := source.Table("reactions").
+	err := source.Table("post_reactions").
 		Where("user_id", viewerID).
 		WhereIn("post_id", stringValues(postIDs)).
 		Pluck("post_id", &reactedPostIDs)
@@ -662,11 +872,19 @@ func publishedPostExists(source db.Tx, postID string) (bool, error) {
 }
 
 func publishedPostExistsForUpdate(source db.Tx, postID string) (bool, error) {
-	return source.Table("posts").
+	rows := make([]lockedResourceRow, 0, 1)
+	err := source.Table("posts").
+		Select("id").
 		Where("id", postID).
 		Where("status", models.PostStatusPublished).
 		LockForUpdate().
-		Exists()
+		Limit(1).
+		Get(&rows)
+	if err != nil {
+		return false, err
+	}
+
+	return len(rows) > 0, nil
 }
 
 func putReactionIdempotently(source db.Tx, userID, postID string) error {
@@ -674,22 +892,30 @@ func putReactionIdempotently(source db.Tx, userID, postID string) error {
 		"post_id": postID,
 		"user_id": userID,
 	}
+	values := map[string]any{
+		"post_id":          postID,
+		"user_id":          userID,
+		"reaction_type_id": defaultLikeReactionTypeID,
+	}
 
 	var mutationErr error
 	for range 2 {
-		_, mutationErr = source.Table("reactions").UpdateOrInsert(identity, identity)
+		_, mutationErr = source.Table("post_reactions").UpdateOrInsert(identity, values)
 
-		exists, existsErr := source.Table("reactions").
+		rows := make([]lockedResourceRow, 0, 1)
+		existsErr := source.Table("post_reactions").
+			Select("id").
 			Where(identity).
 			LockForUpdate().
-			Exists()
+			Limit(1).
+			Get(&rows)
 		if existsErr != nil {
 			if mutationErr != nil {
 				return errors.Join(mutationErr, existsErr)
 			}
 			return existsErr
 		}
-		if exists {
+		if len(rows) > 0 {
 			return nil
 		}
 	}
@@ -707,4 +933,8 @@ func stringValues(values []string) []any {
 	}
 
 	return result
+}
+
+func pageOffset(page, pageSize int) uint64 {
+	return uint64((page - 1) * pageSize)
 }

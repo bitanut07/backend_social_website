@@ -10,11 +10,14 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	contractsconfig "github.com/goravel/framework/contracts/config"
+	contractshttp "github.com/goravel/framework/contracts/http"
 	contractsroute "github.com/goravel/framework/contracts/route"
 )
 
@@ -30,12 +33,14 @@ const (
 )
 
 type Options struct {
-	MaxBodyBytes      int64
-	RequestTimeout    time.Duration
-	ReadHeaderTimeout time.Duration
-	ReadTimeout       time.Duration
-	WriteTimeout      time.Duration
-	IdleTimeout       time.Duration
+	MaxBodyBytes            int64
+	RequestTimeout          time.Duration
+	AssistantRequestTimeout time.Duration
+	ReadHeaderTimeout       time.Duration
+	ReadTimeout             time.Duration
+	WriteTimeout            time.Duration
+	IdleTimeout             time.Duration
+	Output                  io.Writer
 }
 
 type SecureRoute struct {
@@ -44,6 +49,7 @@ type SecureRoute struct {
 	config  contractsconfig.Config
 	options Options
 	handler http.Handler
+	output  io.Writer
 
 	mu        sync.Mutex
 	server    *http.Server
@@ -61,11 +67,13 @@ func NewSecureRoute(
 		Route:   base,
 		config:  config,
 		options: options,
+		output:  options.Output,
 	}
 	secureRoute.handler = newRequestBoundaryHandler(
 		http.HandlerFunc(base.ServeHTTP),
 		options.MaxBodyBytes,
 		options.RequestTimeout,
+		options.AssistantRequestTimeout,
 	)
 
 	return secureRoute
@@ -88,7 +96,7 @@ func (r *SecureRoute) Test(request *http.Request) (*http.Response, error) {
 func (r *SecureRoute) Listen(listener net.Listener) error {
 	server := r.newServer(listener.Addr().String())
 	r.setServer(server, false)
-	fmt.Printf("[HTTP] Listening on: http://%s\n", listener.Addr().String())
+	r.printStartup("HTTP", "http", listener.Addr().String())
 
 	if err := server.Serve(listener); !errors.Is(err, http.ErrServerClosed) {
 		return err
@@ -112,7 +120,7 @@ func (r *SecureRoute) ListenTLSWithCert(
 ) error {
 	server := r.newServer(listener.Addr().String())
 	r.setServer(server, true)
-	fmt.Printf("[HTTPS] Listening on: https://%s\n", listener.Addr().String())
+	r.printStartup("HTTPS", "https", listener.Addr().String())
 
 	if err := server.ServeTLS(
 		listener,
@@ -133,7 +141,7 @@ func (r *SecureRoute) Run(host ...string) error {
 
 	server := r.newServer(address)
 	r.setServer(server, false)
-	fmt.Printf("[HTTP] Listening on: http://%s\n", address)
+	r.printStartup("HTTP", "http", address)
 
 	if err := server.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
 		return err
@@ -176,7 +184,7 @@ func (r *SecureRoute) RunTLSWithCert(
 
 	server := r.newServer(host)
 	r.setServer(server, true)
-	fmt.Printf("[HTTPS] Listening on: https://%s\n", host)
+	r.printStartup("HTTPS", "https", host)
 
 	if err := server.ListenAndServeTLS(
 		certFile,
@@ -230,6 +238,22 @@ func (r *SecureRoute) newServer(address string) *http.Server {
 	}
 }
 
+func (r *SecureRoute) printStartup(label string, scheme string, address string) {
+	routes := append([]contractshttp.Info(nil), r.GetRoutes()...)
+	sort.SliceStable(routes, func(left int, right int) bool {
+		if routes[left].Path == routes[right].Path {
+			return routes[left].Method < routes[right].Method
+		}
+		return routes[left].Path < routes[right].Path
+	})
+
+	fmt.Fprintf(r.output, "[%s] Registered routes (%d)\n", label, len(routes))
+	for _, route := range routes {
+		fmt.Fprintf(r.output, "[%s] %-10s %s\n", label, route.Method, route.Path)
+	}
+	fmt.Fprintf(r.output, "[%s] Listening on: %s://%s\n", label, scheme, address)
+}
+
 func (r *SecureRoute) setServer(server *http.Server, tls bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -270,6 +294,9 @@ func withDefaultTimeouts(options Options) Options {
 	if options.IdleTimeout <= 0 {
 		options.IdleTimeout = defaultIdleTimeout
 	}
+	if options.Output == nil {
+		options.Output = os.Stdout
+	}
 
 	return options
 }
@@ -278,6 +305,7 @@ func newRequestBoundaryHandler(
 	next http.Handler,
 	maxBodyBytes int64,
 	requestTimeout time.Duration,
+	assistantRequestTimeout ...time.Duration,
 ) http.Handler {
 	apiHandler := next
 	if requestTimeout > 0 {
@@ -287,7 +315,15 @@ func newRequestBoundaryHandler(
 			requestTimeoutBody,
 		)
 	}
-	dispatch := routeAPIOnly(next, apiHandler)
+	assistantHandler := apiHandler
+	if len(assistantRequestTimeout) > 0 && assistantRequestTimeout[0] > 0 {
+		assistantHandler = http.TimeoutHandler(
+			next,
+			assistantRequestTimeout[0],
+			requestTimeoutBody,
+		)
+	}
+	dispatch := routeAPIOnly(next, apiHandler, assistantHandler)
 
 	return http.HandlerFunc(func(
 		writer http.ResponseWriter,
@@ -349,6 +385,7 @@ func newRequestBoundaryHandler(
 func routeAPIOnly(
 	defaultHandler http.Handler,
 	apiHandler http.Handler,
+	assistantHandler http.Handler,
 ) http.Handler {
 	return http.HandlerFunc(func(
 		writer http.ResponseWriter,
@@ -360,6 +397,10 @@ func routeAPIOnly(
 		}
 
 		setAPIHeaders(writer.Header())
+		if request.URL.Path == "/api/v1/assistant/questions" {
+			assistantHandler.ServeHTTP(writer, request)
+			return
+		}
 		apiHandler.ServeHTTP(writer, request)
 	})
 }
@@ -371,7 +412,7 @@ func isAPIPath(path string) bool {
 func setAPIHeaders(header http.Header) {
 	header.Set("Cache-Control", "no-store, private")
 	header.Set("Content-Type", "application/json; charset=utf-8")
-	header.Set("Vary", "X-User-ID")
+	header.Set("Vary", "Authorization, X-User-ID")
 	header.Set("X-Content-Type-Options", "nosniff")
 }
 

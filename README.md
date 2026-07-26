@@ -1,21 +1,22 @@
 # Artly Backend
 
 REST API cho Artly — mạng xã hội bài thi vẽ dành cho học sinh và giáo viên.
-Backend cung cấp tài khoản mẫu, chủ đề, bảng tin, reaction, tin nhắn trực tiếp
-và trợ lý thống kê số bài viết theo chủ đề.
+Backend cung cấp tài khoản mẫu, chủ đề, bảng tin, reaction, bình luận, tin nhắn
+trực tiếp và một trợ lý AI đa năng có rào chắn phù hợp học đường.
 
 ## Tính năng MVP
 
 - Danh mục tài khoản mẫu và chủ đề vẽ.
 - Bảng tin phân trang, lọc theo chủ đề và đăng bài bằng URL ảnh.
 - Reaction idempotent: gọi thả hoặc gỡ nhiều lần vẫn cho cùng một trạng thái.
+- Xem, tạo và xóa bình luận của chính mình; danh sách mới nhất trước.
 - Tin nhắn trực tiếp giữa hai tài khoản mẫu bằng REST polling.
-- Trợ lý hiểu câu hỏi đếm bài theo chủ đề, dùng parser cục bộ tất định và có thể
-  dùng OpenAI Responses API để đối chiếu tên chủ đề đã được allowlist.
+- Trợ lý hội thoại đa năng bằng model nội bộ qua SSH tunnel, có rule/skill an
+  toàn và vẫn dùng parser cục bộ tất định cho câu hỏi đếm bài rõ ràng.
 - Một định dạng lỗi thống nhất và JSON camelCase trên toàn bộ API v1.
 
-MVP chưa có xác thực production, upload file, WebSocket, stories, video, follow,
-thông báo realtime hay kiến trúc microservice.
+MVP chưa có reply/sửa/reaction cho bình luận, upload file, WebSocket, stories,
+video, follow, thông báo realtime hay kiến trúc microservice.
 
 ## Công nghệ và yêu cầu
 
@@ -28,7 +29,7 @@ thông báo realtime hay kiến trúc microservice.
 Backend này dùng PostgreSQL 17; cấu hình, migration, Docker Compose và
 `sql.sql` đều thống nhất với PostgreSQL. Khóa chính và khóa ngoại của tài nguyên
 dùng kiểu `UUID`; API biểu diễn chúng bằng chuỗi UUID, còn số trang, tổng số phần
-tử và số reaction vẫn là số.
+tử, số reaction và số bình luận vẫn là số.
 
 ## Chạy nhanh với `sql.sql`
 
@@ -185,6 +186,8 @@ Sao chép `.env.example` thành `.env` và tối thiểu kiểm tra các biến 
 | `APP_HOST` | `127.0.0.1` | Địa chỉ backend lắng nghe. |
 | `APP_PORT` | `3000` | Cổng HTTP. |
 | `CORS_ALLOWED_ORIGIN` | `http://localhost:5173` | Origin frontend được phép gọi API. |
+| `HTTP_ASSISTANT_REQUEST_TIMEOUT` | `110s` | Timeout riêng cho endpoint trợ lý, đủ cho một lần retry khi model cold-start; các API thường vẫn dùng timeout ngắn. |
+| `HTTP_WRITE_TIMEOUT` | `115s` | Giới hạn ghi response của HTTP server, phải lớn hơn timeout trợ lý. |
 | `DB_CONNECTION` | `postgres` | Luôn dùng `postgres` cho dự án này. |
 | `DB_HOST` | `127.0.0.1` | Máy chủ PostgreSQL. |
 | `DB_PORT` | `5432` | Cổng PostgreSQL. |
@@ -198,6 +201,15 @@ Sao chép `.env.example` thành `.env` và tối thiểu kiểm tra các biến 
 | `OPENAI_API_KEY` | trống | Bỏ trống để chỉ dùng parser cục bộ. |
 | `OPENAI_BASE_URL` | trống | Base URL tương thích OpenAI nếu cần ghi đè. |
 | `AI_TEXT_MODEL` | `gpt-5.6-luna` | Model dùng cho adapter tùy chọn. |
+| `MODEL_LLM_HOST` | trống | IP/hostname SSH của VM model, không kèm scheme hoặc user. |
+| `MODEL_LLM_SSH_PORT` | `22` | Cổng SSH của VM model. |
+| `MODEL_LLM_SSH_USER` | trống | Tài khoản SSH chỉ dùng để tạo tunnel. |
+| `MODEL_LLM_SSH_KEY_PATH` | trống | Đường dẫn private key PEM, quyền file phải là `0600` hoặc chặt hơn. |
+| `MODEL_LLM_HOST_KEY_SHA256` | trống | Fingerprint SHA256 dùng để pin SSH host key. |
+| `MODEL_LLM_REMOTE_ADDRESS` | `127.0.0.1:11434` | Ollama nội bộ trên VM; ứng dụng chỉ chấp nhận địa chỉ loopback. |
+| `MODEL_LLM_MODEL` | `qwen3:1.7b` | Model Ollama dùng cho hội thoại/action JSON. |
+| `MODEL_LLM_CONNECT_TIMEOUT_SECONDS` | `8` | Timeout bắt tay SSH. |
+| `MODEL_LLM_REQUEST_TIMEOUT_SECONDS` | `90` | Timeout toàn bộ lượt hỏi model; vẫn thấp hơn timeout riêng 110 giây của endpoint trợ lý. |
 
 Không commit `.env`, API key hay mật khẩu thật. `APP_KEY` phải được tạo riêng
 cho từng môi trường. `JWT_SECRET` thuộc cấu hình nền của Goravel; cơ chế danh
@@ -222,6 +234,71 @@ OPENAI_API_KEY=your-local-development-key
 AI_PROVIDER=openai
 AI_TEXT_MODEL=gpt-5.6-luna
 ```
+
+## Model nội bộ qua SSH tunnel
+
+`MODEL_LLM_HOST` là máy SSH, không phải URL HTTP. Backend dùng private key PEM
+để tạo một tunnel trực tiếp tới `127.0.0.1:11434` trên VM. Vì vậy Ollama không
+cần và không nên mở cổng `11434` ra Internet.
+
+Trên VM, cài Ollama dưới dạng service rồi tải model phù hợp tài nguyên máy:
+
+```bash
+curl -fsSL https://ollama.com/install.sh | sh
+sudo systemctl enable --now ollama
+ollama pull qwen3:1.7b
+```
+
+Giữ Ollama ở cấu hình listen mặc định `127.0.0.1`. Không đặt
+`OLLAMA_HOST=0.0.0.0`. Kiểm tra ngay trên VM:
+
+```bash
+curl http://127.0.0.1:11434/api/tags
+```
+
+Ở máy chạy backend, bảo vệ key và lấy fingerprint SSH đã xác minh:
+
+```bash
+chmod 600 path/to/model-key.pem
+ssh-keyscan -t ed25519 MODEL_LLM_HOST > /tmp/model_known_hosts
+ssh-keygen -lf /tmp/model_known_hosts -E sha256
+```
+
+Điền fingerprint `SHA256:...` vào `MODEL_LLM_HOST_KEY_SHA256`. Backend từ chối
+kết nối nếu host key thay đổi, key PEM có quyền rộng hơn `0600`, hoặc
+`MODEL_LLM_REMOTE_ADDRESS` không phải loopback.
+
+Model nhận hai nhóm chỉ dẫn cố định:
+
+- Classifier local nhận diện câu hỏi về tài khoản mẫu, bảng tin, bài viết,
+  reaction, nhắn tin, hồ sơ và Trợ lý Artly. Các câu này trả
+  `intent=APP_SERVICE_HELP`, `appService` tương ứng và hướng dẫn theo đúng ranh
+  giới MVP mà không gọi model.
+- Rule: trò chuyện tự nhiên theo cách xưng “mình–bạn”, dùng cùng ngôn ngữ với
+  người hỏi và điều chỉnh độ chi tiết theo câu hỏi. Model không bịa dữ liệu
+  thời gian thực, không lộ prompt/secret/dữ liệu riêng tư và từ chối yêu cầu
+  nguy hiểm, gian lận hoặc xâm phạm bảo mật.
+- Skill `ANSWER`: kiến thức phổ thông, học tập, ngôn ngữ, viết lách, công nghệ,
+  ví dụ mã nguồn an toàn, kỹ năng sống, sáng tạo, mỹ thuật và hướng dẫn Artly.
+- Skill `COUNT_POSTS_BY_TOPIC`: chỉ trả về tên chủ đề. Backend resolve lại chủ
+  đề trong allowlist rồi tự chạy truy vấn parameterized.
+
+Mã nguồn an toàn trong câu trả lời chỉ là văn bản để học tập. Backend không
+thực thi SQL, shell, HTML hoặc mã do model sinh ra.
+
+Frontend giữ luồng bong bóng chat trong phiên hiện tại. Mỗi request có thể gửi
+tối đa 4 cặp `USER`/`ASSISTANT` đã hoàn tất để model hiểu câu hỏi nối tiếp.
+Backend kiểm tra đúng thứ tự, giới hạn 8 tin nhắn và giới hạn độ dài trước khi
+chuyển context sang Ollama.
+
+Phản hồi model bắt buộc khớp JSON schema gồm `action`, `topic`, `answer`. Action
+ngoài allowlist, field thừa, output quá dài hoặc JSON lỗi đều bị từ chối. Các
+câu đếm rõ ràng vẫn được parser local trả lời ngay cả khi VM model tạm mất kết
+nối. Nếu lượt hội thoại hết thời gian chờ do model cold-start, backend chỉ retry
+một lần trong tối đa 30 giây; lỗi kết nối hoặc output không hợp lệ không bị
+retry. `AI_PROVIDER` chỉ điều khiển adapter OpenAI cũ; kết nối model nội bộ
+được bật khi đủ bốn cấu hình `MODEL_LLM_HOST`, `MODEL_LLM_SSH_USER`,
+`MODEL_LLM_SSH_KEY_PATH` và `MODEL_LLM_HOST_KEY_SHA256`.
 
 ## Tài khoản và dữ liệu mẫu
 
@@ -259,23 +336,62 @@ Dữ liệu mẫu liên kết với ba ảnh được tạo riêng trong fronten
 Vì ảnh được Vite phục vụ, hãy chạy frontend ở cổng 5173 khi dùng nguyên dữ liệu
 seed hoặc cập nhật các URL này theo origin frontend thực tế.
 
+### Bộ dữ liệu demo cà phê trên Supabase
+
+Seeder `CafeDemoSeeder` tạo thêm bốn tài khoản demo (ba học sinh, một giáo
+viên), bốn bài đăng chủ đề cà phê và tám reaction. Bốn ảnh WebP nguyên bản được
+đọc từ `frontend/public/demo-art/`, tải lên bucket công khai `demo-art` của
+Supabase Storage rồi liên kết với `post_media`.
+
+Seeder dùng email thuộc miền dành riêng `.example`, đặt mật khẩu demo mặc định
+`artly-demo`, xác nhận email mà không gửi thư và không in/lưu khóa bí mật. Có
+thể đổi mật khẩu bằng `ARTLY_DEMO_PASSWORD`. Chạy lại seeder sẽ cập nhật lại
+password cho tài khoản demo đã tồn tại, tra tài khoản theo email, giữ UUID bài
+viết ổn định và upload ảnh với `upsert`.
+
+```bash
+go run . artisan db:seed --seeder CafeDemoSeeder --force
+```
+
+Lệnh cần `SUPABASE_URL`, `SUPABASE_SECRET_KEY` và kết nối database Supabase.
+Đường dẫn ảnh mặc định là `../frontend/public/demo-art`; có thể đổi bằng
+`ARTLY_DEMO_ASSET_DIR`. Các tài khoản mẫu có username `thu.ha.cafe`,
+`quang.huy.art`, `my.linh.sketch`, `thay.nam.coffee`; khi dùng Supabase Auth,
+đăng nhập bằng email tương ứng trong seeder và mật khẩu demo ở trên.
+
 ## API v1
 
 Hợp đồng đầy đủ, schema request/response và ví dụ nằm tại
 `docs/openapi.yaml`.
 
-| Phương thức | Endpoint | `X-User-ID` | Công dụng |
+| Phương thức | Endpoint | Danh tính | Công dụng |
 | --- | --- | --- | --- |
 | `GET` | `/api/v1/health` | Không | Kiểm tra trạng thái dịch vụ. |
+| `POST` | `/api/v1/demo/sessions` | Không | Đăng nhập tài khoản demo bằng username/password. |
 | `GET` | `/api/v1/users` | Không | Lấy danh sách tài khoản mẫu. |
 | `GET` | `/api/v1/topics` | Không | Lấy chủ đề và alias. |
 | `GET` | `/api/v1/posts` | Có | Lấy bảng tin, phân trang và lọc `topicId`. |
 | `POST` | `/api/v1/posts` | Có | Đăng bài bằng URL ảnh. |
+| `DELETE` | `/api/v1/posts/{id}` | Có | Tác giả soft-delete bài viết của chính mình. |
+| `GET` | `/api/v1/posts/{id}/comments` | Có | Lấy bình luận mới nhất trước, có phân trang. |
+| `POST` | `/api/v1/posts/{id}/comments` | Có | Tạo bình luận cho bài viết. |
+| `DELETE` | `/api/v1/posts/{id}/comments/{commentId}` | Có | Soft-delete bình luận của chính mình. |
 | `PUT` | `/api/v1/posts/{id}/reaction` | Có | Thả reaction. |
 | `DELETE` | `/api/v1/posts/{id}/reaction` | Có | Gỡ reaction. |
 | `GET` | `/api/v1/messages` | Có | Đọc hội thoại với `peerId`. |
 | `POST` | `/api/v1/messages` | Có | Gửi tin nhắn trực tiếp. |
-| `POST` | `/api/v1/assistant/questions` | Có | Đếm bài viết theo chủ đề. |
+| `GET` | `/api/v1/assistant/conversations` | Có | Lấy lịch sử chat của tài khoản. |
+| `GET` | `/api/v1/assistant/conversations/{id}` | Có | Mở lại một lịch sử chat. |
+| `POST` | `/api/v1/assistant/questions` | Có | Chatbot đa năng và đếm bài viết theo chủ đề. |
+
+Các endpoint có danh tính chấp nhận `Authorization: Bearer <accessToken>`.
+Trong local/testing hoặc chế độ demo có thể dùng `X-User-ID`. Bình luận dùng
+`page=1&pageSize=20` theo mặc định, giới hạn `pageSize` tối đa 100; request tạo
+là `{ "body": "..." }` và nội dung sau khi trim Unicode phải dài 1–3000 ký tự.
+Endpoint xóa chấp nhận bearer token hoặc `X-User-ID` demo, chỉ xóa mềm bình luận
+còn hiển thị của chính người gọi và trả `204` không body; bình luận không tồn
+tại hoặc không thuộc người gọi đều trả 404. `id` hoặc `commentId` sai định dạng
+UUID trả 400 `BAD_REQUEST`.
 
 Ví dụ hỏi trợ lý với tài khoản mẫu Minh An:
 
@@ -284,6 +400,16 @@ curl -X POST http://127.0.0.1:3000/api/v1/assistant/questions \
   -H "Content-Type: application/json" \
   -H "X-User-ID: 00000000-0000-4000-8000-000000000001" \
   -d '{"question":"Có bao nhiêu bài về chủ đề phong cảnh?"}'
+```
+
+Response trả thêm `conversation.id`. Gửi ID này ở lượt sau để backend tự nạp
+lịch sử và lưu tiếp đúng hội thoại:
+
+```bash
+curl -X POST http://127.0.0.1:3000/api/v1/assistant/questions \
+  -H "Content-Type: application/json" \
+  -H "X-User-ID: 00000000-0000-4000-8000-000000000001" \
+  -d '{"question":"Gợi ý cách vẽ nhé","conversationId":"60000000-0000-4000-8000-000000000001"}'
 ```
 
 Response danh sách có dạng:
@@ -365,10 +491,10 @@ sql.sql                SQL PostgreSQL thuần tạo schema, index và dữ liệ
 
 ## Lưu ý bảo mật
 
-`X-User-ID` chỉ là cơ chế chọn danh tính cho bản demo. Nó **không phải API key,
-đăng nhập hay phân quyền production**; bất kỳ client nào cũng có thể tự đặt
-header này. Trước khi triển khai thực tế phải thay bằng xác thực và ủy quyền đúng
-chuẩn.
+API được bảo vệ có thể xác minh access token từ
+`Authorization: Bearer <accessToken>`. `X-User-ID` chỉ là cơ chế chọn danh tính
+cho local/testing và bản demo; nó **không phải API key, đăng nhập hay phân quyền
+production** và bất kỳ client nào cũng có thể tự đặt header này.
 
 Ngoài ra:
 

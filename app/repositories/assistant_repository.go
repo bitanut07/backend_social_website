@@ -94,9 +94,10 @@ func (r *AssistantRepository) CountPublishedPostsByTopic(
 
 func findCanonicalTopic(query assistantQuery, normalized string) (models.Topic, bool, error) {
 	var topic models.Topic
+	hyphenated := strings.ReplaceAll(normalized, " ", "-")
 	err := query.
 		Model(&models.Topic{}).
-		Where("normalized_name = ?", normalized).
+		Where("normalized_name IN (?, ?)", normalized, hyphenated).
 		FirstOrFail(&topic)
 	if errors.Is(err, frameworkerrors.OrmRecordNotFound) {
 		return models.Topic{}, false, nil
@@ -110,10 +111,15 @@ func findCanonicalTopic(query assistantQuery, normalized string) (models.Topic, 
 
 func findTopicByAlias(query assistantQuery, normalized string) (models.Topic, bool, error) {
 	var topic models.Topic
+	hyphenated := strings.ReplaceAll(normalized, " ", "-")
 	err := query.
 		Model(&models.Topic{}).
 		Join("JOIN topic_aliases ON topic_aliases.topic_id = topics.id").
-		Where("topic_aliases.normalized_alias = ?", normalized).
+		Where(
+			"topic_aliases.normalized_alias IN (?, ?)",
+			normalized,
+			hyphenated,
+		).
 		FirstOrFail(&topic)
 	if errors.Is(err, frameworkerrors.OrmRecordNotFound) {
 		return models.Topic{}, false, nil

@@ -1,6 +1,19 @@
 package support
 
-import "testing"
+import (
+	"io"
+	"net/http"
+	"strings"
+	"testing"
+)
+
+type roundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (function roundTripperFunc) RoundTrip(
+	request *http.Request,
+) (*http.Response, error) {
+	return function(request)
+}
 
 func TestParseUserIDHeader(t *testing.T) {
 	t.Parallel()
@@ -74,5 +87,80 @@ func TestParseResourceIDRejectsInvalidUUID(t *testing.T) {
 
 	if _, err := ParseResourceID("42"); err == nil {
 		t.Fatal("numeric resource ID must be rejected")
+	}
+}
+
+func TestParseBearerToken(t *testing.T) {
+	t.Parallel()
+
+	token, err := ParseBearerToken("  Bearer access-token  ")
+	if err != nil || token != "access-token" {
+		t.Fatalf("got token %q and error %v", token, err)
+	}
+
+	for _, value := range []string{"", "Basic token", "Bearer", "Bearer a b"} {
+		if _, err := ParseBearerToken(value); err == nil {
+			t.Fatalf("expected %q to be rejected", value)
+		}
+	}
+}
+
+func TestVerifySupabaseAccessToken(t *testing.T) {
+	t.Parallel()
+
+	const expectedID = "00000000-0000-4000-8000-00000000000a"
+	client := &http.Client{Transport: roundTripperFunc(func(
+		request *http.Request,
+	) (*http.Response, error) {
+		if request.URL.Path != "/auth/v1/user" {
+			t.Errorf("unexpected path %q", request.URL.Path)
+		}
+		if request.Header.Get("Authorization") != "Bearer valid-token" {
+			t.Errorf("missing bearer token")
+		}
+		if request.Header.Get("apikey") != "publishable-key" {
+			t.Errorf("missing publishable key")
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"id":"` + expectedID + `"}`)),
+		}, nil
+	})}
+
+	got, err := VerifySupabaseAccessToken(
+		"valid-token",
+		"https://project.supabase.co",
+		"publishable-key",
+		client,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != expectedID {
+		t.Fatalf("got %q, want %q", got, expectedID)
+	}
+}
+
+func TestVerifySupabaseAccessTokenRejectsUnauthorized(t *testing.T) {
+	t.Parallel()
+
+	client := &http.Client{Transport: roundTripperFunc(func(
+		_ *http.Request,
+	) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusUnauthorized,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(`{"message":"expired"}`)),
+		}, nil
+	})}
+
+	if _, err := VerifySupabaseAccessToken(
+		"expired-token",
+		"https://project.supabase.co",
+		"publishable-key",
+		client,
+	); err == nil {
+		t.Fatal("unauthorized token must be rejected")
 	}
 }

@@ -9,6 +9,7 @@ import (
 	contractsai "github.com/goravel/framework/contracts/ai"
 
 	"goravel/app/repositories"
+	"goravel/app/services"
 )
 
 type extractorTopicResolverStub struct{}
@@ -64,6 +65,78 @@ func TestOpenAITopicExtractorTimeoutLeavesTimeForLocalFallback(t *testing.T) {
 			openAITopicExtractionTimeout,
 			applicationRequestTimeout,
 		)
+	}
+}
+
+func TestConfiguredOpenAITopicExtractorReturnsNilDependencyWhenOpenAIIsDisabled(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	clientFactoryCalled := false
+	var extractor services.TopicExtractor = newConfiguredOpenAITopicExtractor(
+		"local",
+		"unused-api-key",
+		func() contractsai.AI {
+			clientFactoryCalled = true
+			return &aiClientFake{}
+		},
+		&extractorTopicResolverStub{},
+	)
+
+	if extractor != nil {
+		t.Fatalf("configured extractor = %#v, want nil", extractor)
+	}
+	if clientFactoryCalled {
+		t.Fatal("AI client factory was called while OpenAI was disabled")
+	}
+}
+
+func TestConfiguredOpenAITopicExtractorReturnsNilDependencyWhenAPIKeyIsMissing(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	clientFactoryCalled := false
+	var extractor services.TopicExtractor = newConfiguredOpenAITopicExtractor(
+		"openai",
+		"   ",
+		func() contractsai.AI {
+			clientFactoryCalled = true
+			return &aiClientFake{}
+		},
+		&extractorTopicResolverStub{},
+	)
+
+	if extractor != nil {
+		t.Fatalf("configured extractor = %#v, want nil", extractor)
+	}
+	if clientFactoryCalled {
+		t.Fatal("AI client factory was called without an OpenAI API key")
+	}
+}
+
+func TestConfiguredOpenAITopicExtractorBuildsDependencyWhenOpenAIIsEnabled(
+	t *testing.T,
+) {
+	t.Parallel()
+
+	client := &aiClientFake{}
+	var extractor services.TopicExtractor = newConfiguredOpenAITopicExtractor(
+		"openai",
+		"test-api-key",
+		func() contractsai.AI {
+			return client
+		},
+		&extractorTopicResolverStub{},
+	)
+
+	configured, ok := extractor.(*OpenAITopicExtractor)
+	if !ok {
+		t.Fatalf("configured extractor = %T, want *OpenAITopicExtractor", extractor)
+	}
+	if configured.client != client {
+		t.Fatal("configured extractor did not keep the resolved AI client")
 	}
 }
 

@@ -36,6 +36,28 @@ func TestSQLScriptRunsInPostgreSQLEditorsWithoutPsqlCommands(t *testing.T) {
 	}
 }
 
+func TestSQLScriptAddsSuperAdminFlagWithFalseDefault(t *testing.T) {
+	t.Parallel()
+
+	script := string(readSQLScript(t))
+	usersDDL := sqlSection(
+		t,
+		script,
+		"CREATE TABLE IF NOT EXISTS users (",
+		"\n);",
+	)
+	const columnDefinition = "is_super_admin BOOLEAN NOT NULL DEFAULT FALSE"
+	if !strings.Contains(usersDDL, columnDefinition) {
+		t.Errorf("bảng users thiếu định nghĩa %q", columnDefinition)
+	}
+
+	const compatibilityMigration = `ALTER TABLE users
+  ADD COLUMN IF NOT EXISTS is_super_admin BOOLEAN NOT NULL DEFAULT FALSE;`
+	if !strings.Contains(script, compatibilityMigration) {
+		t.Error("sql.sql phải bổ sung is_super_admin cho bảng users đã tồn tại")
+	}
+}
+
 func TestSQLScriptUsesUUIDKeysWithoutSequences(t *testing.T) {
 	t.Parallel()
 
@@ -60,8 +82,11 @@ func TestSQLScriptUsesUUIDKeysWithoutSequences(t *testing.T) {
 		"topics",
 		"topic_aliases",
 		"posts",
+		"post_topics",
 		"reactions",
 		"messages",
+		"assistant_chat_conversations",
+		"assistant_chat_messages",
 	}
 	for _, table := range resourceTables {
 		table := table
@@ -87,11 +112,13 @@ func TestSQLScriptUsesUUIDKeysWithoutSequences(t *testing.T) {
 	}
 
 	foreignKeys := map[string][]string{
-		"topic_aliases": {"topic_id"},
-		"posts":         {"user_id"},
-		"post_topics":   {"post_id", "topic_id"},
-		"reactions":     {"post_id", "user_id"},
-		"messages":      {"sender_id", "receiver_id"},
+		"topic_aliases":                {"topic_id"},
+		"posts":                        {"user_id"},
+		"post_topics":                  {"post_id", "topic_id"},
+		"reactions":                    {"post_id", "user_id"},
+		"messages":                     {"sender_id", "receiver_id"},
+		"assistant_chat_conversations": {"user_id"},
+		"assistant_chat_messages":      {"conversation_id"},
 	}
 	for table, columns := range foreignKeys {
 		ddl := sqlSection(
@@ -129,13 +156,15 @@ func TestSQLScriptRejectsAnExistingNonUUIDSchemaEarly(t *testing.T) {
 	}
 
 	resourceKeys := map[string][]string{
-		"users":         {"id"},
-		"topics":        {"id"},
-		"topic_aliases": {"id", "topic_id"},
-		"posts":         {"id", "user_id"},
-		"post_topics":   {"post_id", "topic_id"},
-		"reactions":     {"id", "post_id", "user_id"},
-		"messages":      {"id", "sender_id", "receiver_id"},
+		"users":                        {"id"},
+		"topics":                       {"id"},
+		"topic_aliases":                {"id", "topic_id"},
+		"posts":                        {"id", "user_id"},
+		"post_topics":                  {"id", "post_id", "topic_id"},
+		"reactions":                    {"id", "post_id", "user_id"},
+		"messages":                     {"id", "sender_id", "receiver_id"},
+		"assistant_chat_conversations": {"id", "user_id"},
+		"assistant_chat_messages":      {"id", "conversation_id"},
 	}
 	for table, columns := range resourceKeys {
 		for _, column := range columns {
@@ -167,6 +196,7 @@ func TestSQLScriptContainsStableUUIDSeeds(t *testing.T) {
 			"INSERT INTO posts",
 		},
 		{"posts", "20000000", 5, "INSERT INTO posts", "INSERT INTO post_topics"},
+		{"post_topics", "35000000", 7, "INSERT INTO post_topics", "INSERT INTO reactions"},
 		{"reactions", "40000000", 6, "INSERT INTO reactions", "INSERT INTO messages"},
 		{"messages", "50000000", 4, "INSERT INTO messages", "COMMIT;"},
 	}
@@ -224,7 +254,7 @@ func TestSQLScriptKeepsUUIDSeedRelationships(t *testing.T) {
 		"INSERT INTO post_topics",
 		"INSERT INTO reactions",
 	)
-	for _, relation := range [][2]int{
+	for index, relation := range [][2]int{
 		{1, 1},
 		{1, 3},
 		{2, 4},
@@ -236,6 +266,7 @@ func TestSQLScriptKeepsUUIDSeedRelationships(t *testing.T) {
 		assertTuplePrefix(
 			t,
 			postTopics,
+			stableUUID("35000000", index+1),
 			stableUUID("20000000", relation[0]),
 			stableUUID("10000000", relation[1]),
 		)

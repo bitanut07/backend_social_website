@@ -43,11 +43,29 @@ func ExtractTopicCandidate(question string) string {
 
 	for _, marker := range []string{"noi ve chu de ", "thuoc chu de ", "chu de ", "noi ve ", "ve "} {
 		if index := strings.LastIndex(normalizedQuestion, marker); index >= 0 {
-			return limitTopic(strings.TrimSpace(normalizedQuestion[index+len(marker):]))
+			candidate := strings.TrimSpace(normalizedQuestion[index+len(marker):])
+			return limitTopic(trimTopicPoliteness(candidate))
 		}
 	}
 
 	return ""
+}
+
+func trimTopicPoliteness(topic string) string {
+	for _, suffix := range []string{
+		" giup minh nhe",
+		" giup toi nhe",
+		" giup minh",
+		" giup toi",
+		" duoc khong",
+		" nhe",
+	} {
+		if strings.HasSuffix(topic, suffix) {
+			return strings.TrimSpace(strings.TrimSuffix(topic, suffix))
+		}
+	}
+
+	return topic
 }
 
 func hasStatisticsIntent(question string) bool {

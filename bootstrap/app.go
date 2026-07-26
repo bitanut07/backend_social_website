@@ -11,6 +11,7 @@ import (
 func Boot() contractsfoundation.Application {
 	return foundation.Setup().
 		WithMigrations(Migrations).
+		WithSeeders(Seeders).
 		WithRouting(func() {
 			routes.Web()
 			routes.Grpc()

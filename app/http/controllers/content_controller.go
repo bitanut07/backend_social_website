@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -27,22 +28,33 @@ const (
 	maxPostPageSize          = 50
 	maximumPageNumber        = 100_000
 	maxPostRequestBytes      = 64 * 1024
+	maxProfileRequestBytes   = 16 * 1024
+	maxDemoLoginRequestBytes = 8 * 1024
 )
+
+var profileUsernamePattern = regexp.MustCompile(`^[a-z0-9._-]{3,50}$`)
 
 type ContentServiceContract interface {
 	ListUsers(ctx context.Context, page, pageSize int) ([]repositories.User, int64, error)
+	DemoLogin(ctx context.Context, input services.DemoLoginInput) (repositories.User, error)
+	UpdateProfile(
+		ctx context.Context,
+		userID string,
+		input repositories.UpdateProfileInput,
+	) (repositories.User, error)
 	ListTopics(ctx context.Context, page, pageSize int) ([]repositories.Topic, int64, error)
 	ListPosts(
 		ctx context.Context,
 		viewerID string,
 		page, pageSize int,
-		topicID *string,
+		topicID, authorID *string,
 	) ([]repositories.Post, int64, error)
 	CreatePost(
 		ctx context.Context,
 		userID string,
 		input repositories.CreatePostInput,
 	) (repositories.Post, error)
+	DeletePost(ctx context.Context, userID, postID string) error
 	PutReaction(ctx context.Context, userID, postID string) (repositories.ReactionState, error)
 	DeleteReaction(ctx context.Context, userID, postID string) (repositories.ReactionState, error)
 }
@@ -76,6 +88,47 @@ func (c *ContentController) ListUsers(ctx http.Context) http.Response {
 	}
 
 	return responses.Paginated(ctx, users, responses.Page(totalItems, page, pageSize))
+}
+
+func (c *ContentController) CreateDemoSession(ctx http.Context) http.Response {
+	var body io.Reader
+	if request := ctx.Request().Origin(); request != nil {
+		body = request.Body
+	}
+	input, inputErr := decodeAndValidateDemoLogin(body)
+	if inputErr != nil {
+		return inputFailure(inputErr).respond(ctx)
+	}
+
+	user, err := c.service.DemoLogin(ctx, input)
+	if err != nil {
+		return contentServiceFailure(err).respond(ctx)
+	}
+
+	return responses.Data(ctx, http.StatusCreated, user)
+}
+
+func (c *ContentController) UpdateProfile(ctx http.Context) http.Response {
+	userID, err := support.CurrentUserID(ctx)
+	if err != nil {
+		return contentDemoIdentityFailure().respond(ctx)
+	}
+
+	var body io.Reader
+	if request := ctx.Request().Origin(); request != nil {
+		body = request.Body
+	}
+	input, inputErr := decodeAndValidateUpdateProfile(body)
+	if inputErr != nil {
+		return inputFailure(inputErr).respond(ctx)
+	}
+
+	user, err := c.service.UpdateProfile(ctx, userID, input)
+	if err != nil {
+		return contentServiceFailure(err).respond(ctx)
+	}
+
+	return responses.Data(ctx, http.StatusOK, user)
 }
 
 func (c *ContentController) ListTopics(ctx http.Context) http.Response {
@@ -120,7 +173,19 @@ func (c *ContentController) ListPosts(ctx http.Context) http.Response {
 		return inputFailure(inputErr).respond(ctx)
 	}
 
-	posts, totalItems, err := c.service.ListPosts(ctx, viewerID, page, pageSize, topicID)
+	authorRaw := ""
+	if value, exists := query["authorId"]; exists {
+		if strings.TrimSpace(value) == "" {
+			return malformedContentParameterFailure("authorId").respond(ctx)
+		}
+		authorRaw = value
+	}
+	authorID, inputErr := parseOptionalResourceID(authorRaw, "authorId")
+	if inputErr != nil {
+		return inputFailure(inputErr).respond(ctx)
+	}
+
+	posts, totalItems, err := c.service.ListPosts(ctx, viewerID, page, pageSize, topicID, authorID)
 	if err != nil {
 		return contentServiceFailure(err).respond(ctx)
 	}
@@ -149,6 +214,27 @@ func (c *ContentController) CreatePost(ctx http.Context) http.Response {
 	}
 
 	return responses.Data(ctx, http.StatusCreated, post)
+}
+
+func (c *ContentController) DeletePost(ctx http.Context) http.Response {
+	userID, err := support.CurrentUserID(ctx)
+	if err != nil {
+		return contentDemoIdentityFailure().respond(ctx)
+	}
+
+	postID, inputErr := parseRequiredResourceID(
+		ctx.Request().Route("id"),
+		"id",
+	)
+	if inputErr != nil {
+		return inputFailure(inputErr).respond(ctx)
+	}
+
+	if err = c.service.DeletePost(ctx, userID, postID); err != nil {
+		return contentServiceFailure(err).respond(ctx)
+	}
+
+	return ctx.Response().NoContent(http.StatusNoContent)
 }
 
 func (c *ContentController) PutReaction(ctx http.Context) http.Response {
@@ -322,6 +408,161 @@ type createPostPayload struct {
 	TopicIDs *[]string `json:"topicIds"`
 }
 
+type updateProfilePayload struct {
+	Username    *string `json:"username"`
+	DisplayName *string `json:"displayName"`
+	AvatarURL   *string `json:"avatarUrl"`
+}
+
+type demoLoginPayload struct {
+	Username *string `json:"username"`
+	Password *string `json:"password"`
+}
+
+func decodeAndValidateDemoLogin(reader io.Reader) (services.DemoLoginInput, *inputError) {
+	if reader == nil {
+		return services.DemoLoginInput{}, malformedInputError("", io.EOF)
+	}
+
+	raw, err := io.ReadAll(io.LimitReader(reader, maxDemoLoginRequestBytes+1))
+	if err != nil {
+		return services.DemoLoginInput{}, malformedInputError("", err)
+	}
+	if len(raw) > maxDemoLoginRequestBytes {
+		return services.DemoLoginInput{}, malformedInputError(
+			"",
+			errors.New("request body is too large"),
+		)
+	}
+
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+
+	var payload demoLoginPayload
+	if err = decoder.Decode(&payload); err != nil {
+		return services.DemoLoginInput{}, classifyProfileJSONError(err)
+	}
+
+	var trailing any
+	if err = decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		if err == nil {
+			err = errors.New("request contains trailing JSON")
+		}
+		return services.DemoLoginInput{}, malformedInputError("", err)
+	}
+
+	return validateDemoLoginPayload(payload)
+}
+
+func validateDemoLoginPayload(payload demoLoginPayload) (services.DemoLoginInput, *inputError) {
+	fields := make(map[string][]string)
+
+	rawUsername := validateRequiredString(payload.Username, "username", 50, fields)
+	username := strings.ToLower(strings.TrimPrefix(rawUsername, "@"))
+	switch {
+	case username == "" && rawUsername != "":
+		fields["username"] = []string{"Username không hợp lệ."}
+	case username != "" && !profileUsernamePattern.MatchString(username):
+		fields["username"] = []string{
+			"Username chỉ gồm chữ thường, số, dấu chấm, gạch dưới hoặc gạch ngang.",
+		}
+	}
+	password := validateRequiredString(payload.Password, "password", 128, fields)
+
+	if len(fields) > 0 {
+		return services.DemoLoginInput{}, &inputError{
+			Kind:   inputErrorValidation,
+			Fields: fields,
+		}
+	}
+
+	return services.DemoLoginInput{
+		Username: username,
+		Password: password,
+	}, nil
+}
+
+func decodeAndValidateUpdateProfile(reader io.Reader) (repositories.UpdateProfileInput, *inputError) {
+	if reader == nil {
+		return repositories.UpdateProfileInput{}, malformedInputError("", io.EOF)
+	}
+
+	raw, err := io.ReadAll(io.LimitReader(reader, maxProfileRequestBytes+1))
+	if err != nil {
+		return repositories.UpdateProfileInput{}, malformedInputError("", err)
+	}
+	if len(raw) > maxProfileRequestBytes {
+		return repositories.UpdateProfileInput{}, malformedInputError(
+			"",
+			errors.New("request body is too large"),
+		)
+	}
+
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+
+	var payload updateProfilePayload
+	if err = decoder.Decode(&payload); err != nil {
+		return repositories.UpdateProfileInput{}, classifyProfileJSONError(err)
+	}
+
+	var trailing any
+	if err = decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		if err == nil {
+			err = errors.New("request contains trailing JSON")
+		}
+		return repositories.UpdateProfileInput{}, malformedInputError("", err)
+	}
+
+	return validateUpdateProfilePayload(payload)
+}
+
+func validateUpdateProfilePayload(
+	payload updateProfilePayload,
+) (repositories.UpdateProfileInput, *inputError) {
+	fields := make(map[string][]string)
+
+	username := validateRequiredString(payload.Username, "username", 50, fields)
+	switch {
+	case username != "" && utf8.RuneCountInString(username) < 3:
+		fields["username"] = []string{"Username phải có ít nhất 3 ký tự."}
+	case username != "" && !profileUsernamePattern.MatchString(username):
+		fields["username"] = []string{
+			"Username chỉ gồm chữ thường, số, dấu chấm, gạch dưới hoặc gạch ngang.",
+		}
+	}
+
+	displayName := validateRequiredString(payload.DisplayName, "displayName", 100, fields)
+
+	var avatarURL *string
+	if payload.AvatarURL != nil {
+		trimmed := strings.TrimSpace(*payload.AvatarURL)
+		switch {
+		case trimmed == "":
+			avatarURL = nil
+		case utf8.RuneCountInString(trimmed) > 2048:
+			fields["avatarUrl"] = []string{"URL avatar không được vượt quá 2048 ký tự."}
+		case !validHTTPURL(trimmed):
+			fields["avatarUrl"] = []string{"URL avatar phải là URL HTTP hoặc HTTPS tuyệt đối."}
+		default:
+			avatarURL = &trimmed
+		}
+	}
+
+	if len(fields) > 0 {
+		return repositories.UpdateProfileInput{}, &inputError{
+			Kind:   inputErrorValidation,
+			Fields: fields,
+		}
+	}
+
+	return repositories.UpdateProfileInput{
+		Username:    username,
+		DisplayName: displayName,
+		AvatarURL:   avatarURL,
+	}, nil
+}
+
 func decodeAndValidateCreatePost(reader io.Reader) (repositories.CreatePostInput, *inputError) {
 	if reader == nil {
 		return repositories.CreatePostInput{}, malformedInputError("", io.EOF)
@@ -469,6 +710,10 @@ func validHTTPURL(value string) bool {
 }
 
 func classifyCreatePostJSONError(err error) *inputError {
+	return classifyProfileJSONError(err)
+}
+
+func classifyProfileJSONError(err error) *inputError {
 	var typeError *json.UnmarshalTypeError
 	if errors.As(err, &typeError) {
 		field := typeError.Field
@@ -524,6 +769,14 @@ func contentServiceFailure(err error) *contentRequestFailure {
 	if errors.Is(err, services.ErrDemoUserNotFound) {
 		return contentDemoIdentityFailure()
 	}
+	if errors.Is(err, services.ErrInvalidDemoCredentials) {
+		return &contentRequestFailure{
+			status:  http.StatusUnauthorized,
+			code:    "INVALID_DEMO_CREDENTIALS",
+			message: "Sai tài khoản hoặc mật khẩu demo",
+			details: http.Json{},
+		}
+	}
 
 	var missingTopics *services.MissingTopicsError
 	if errors.As(err, &missingTopics) {
@@ -540,6 +793,15 @@ func contentServiceFailure(err error) *contentRequestFailure {
 			status:  http.StatusNotFound,
 			code:    "NOT_FOUND",
 			message: "Không tìm thấy tài nguyên",
+			details: http.Json{},
+		}
+	}
+
+	if errors.Is(err, services.ErrForbidden) {
+		return &contentRequestFailure{
+			status:  http.StatusForbidden,
+			code:    "FORBIDDEN",
+			message: "Bạn chỉ có thể xóa bài viết của chính mình",
 			details: http.Json{},
 		}
 	}

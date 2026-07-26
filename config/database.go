@@ -15,12 +15,30 @@ func init() {
 		// Database connections
 		"connections": map[string]any{
 			"postgres": map[string]any{
-				"host":     config.Env("DB_HOST", "127.0.0.1"),
-				"port":     config.Env("DB_PORT", 5432),
-				"database": config.Env("DB_DATABASE", "artly_social"),
-				"username": config.Env("DB_USERNAME", "postgres"),
-				"password": config.Env("DB_PASSWORD"),
-				"sslmode":  config.Env("DB_SSLMODE", "disable"),
+				"host": config.Env(
+					"SUPABASE_POOLER_HOST",
+					config.Env("DB_HOST", "127.0.0.1"),
+				),
+				"port": config.Env(
+					"SUPABASE_SESSION_POOLER_PORT",
+					config.Env("DB_PORT", 5432),
+				),
+				"database": config.Env(
+					"SUPABASE_DB_NAME",
+					config.Env("DB_DATABASE", "artly_social"),
+				),
+				"username": config.Env(
+					"SUPABASE_POOLER_USER",
+					config.Env("DB_USERNAME", "postgres"),
+				),
+				"password": config.Env(
+					"SUPABASE_DB_PASSWORD",
+					config.Env("DB_PASSWORD"),
+				),
+				"sslmode": config.Env(
+					"DB_SSLMODE",
+					"require",
+				),
 				"schema":   config.Env("DB_SCHEMA", "public"),
 				"timezone": config.Env("DB_TIMEZONE", "UTC"),
 				"singular": false,
@@ -72,7 +90,9 @@ func init() {
 		// your application. Using this information, we can determine which of
 		// the migrations on disk haven't actually been run in the database.
 		"migrations": map[string]any{
-			"table": "migrations",
+			// A dedicated name avoids colliding with migration ledgers in other
+			// schemas managed by Supabase extensions.
+			"table": "artly_goravel_migrations",
 		},
 	})
 }

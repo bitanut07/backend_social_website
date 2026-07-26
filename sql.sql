@@ -25,6 +25,7 @@ BEGIN
       ('topic_aliases', 'topic_id'),
       ('posts', 'id'),
       ('posts', 'user_id'),
+      ('post_topics', 'id'),
       ('post_topics', 'post_id'),
       ('post_topics', 'topic_id'),
       ('reactions', 'id'),
@@ -32,7 +33,11 @@ BEGIN
       ('reactions', 'user_id'),
       ('messages', 'id'),
       ('messages', 'sender_id'),
-      ('messages', 'receiver_id')
+      ('messages', 'receiver_id'),
+      ('assistant_chat_conversations', 'id'),
+      ('assistant_chat_conversations', 'user_id'),
+      ('assistant_chat_messages', 'id'),
+      ('assistant_chat_messages', 'conversation_id')
   )
   SELECT
     expected.table_name,
@@ -71,6 +76,7 @@ CREATE TABLE IF NOT EXISTS users (
   display_name VARCHAR(100) NOT NULL,
   role VARCHAR(20) NOT NULL,
   avatar_url VARCHAR(2048),
+  is_super_admin BOOLEAN NOT NULL DEFAULT FALSE,
   created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
@@ -88,6 +94,9 @@ CREATE TABLE IF NOT EXISTS users (
       OR avatar_url LIKE 'https://%'
     )
 );
+
+ALTER TABLE users
+  ADD COLUMN IF NOT EXISTS is_super_admin BOOLEAN NOT NULL DEFAULT FALSE;
 
 CREATE TABLE IF NOT EXISTS topics (
   id UUID NOT NULL DEFAULT gen_random_uuid(),
@@ -156,11 +165,13 @@ CREATE TABLE IF NOT EXISTS posts (
 );
 
 CREATE TABLE IF NOT EXISTS post_topics (
+  id UUID NOT NULL DEFAULT gen_random_uuid(),
   post_id UUID NOT NULL,
   topic_id UUID NOT NULL,
   created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (post_id, topic_id),
+  PRIMARY KEY (id),
+  CONSTRAINT post_topics_pair_unique UNIQUE (post_id, topic_id),
   CONSTRAINT fk_post_topics_post
     FOREIGN KEY (post_id) REFERENCES posts (id)
     ON UPDATE CASCADE ON DELETE CASCADE,
@@ -209,6 +220,53 @@ CREATE TABLE IF NOT EXISTS messages (
     CHECK (is_read IN (FALSE, TRUE))
 );
 
+CREATE TABLE IF NOT EXISTS assistant_chat_conversations (
+  id UUID NOT NULL DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL,
+  title VARCHAR(80) NOT NULL,
+  created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  CONSTRAINT fk_assistant_chat_conversations_user
+    FOREIGN KEY (user_id) REFERENCES users (id)
+    ON UPDATE CASCADE ON DELETE CASCADE,
+  CONSTRAINT chk_assistant_chat_conversations_title_length
+    CHECK (CHAR_LENGTH(TRIM(title)) BETWEEN 1 AND 80)
+);
+
+CREATE TABLE IF NOT EXISTS assistant_chat_messages (
+  id UUID NOT NULL DEFAULT gen_random_uuid(),
+  conversation_id UUID NOT NULL,
+  position INTEGER NOT NULL,
+  role VARCHAR(20) NOT NULL,
+  content TEXT NOT NULL,
+  response_json JSONB,
+  created_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMPTZ(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  CONSTRAINT fk_assistant_chat_messages_conversation
+    FOREIGN KEY (conversation_id) REFERENCES assistant_chat_conversations (id)
+    ON UPDATE CASCADE ON DELETE CASCADE,
+  CONSTRAINT chk_assistant_chat_messages_role
+    CHECK (role IN ('USER', 'ASSISTANT')),
+  CONSTRAINT chk_assistant_chat_messages_position
+    CHECK (position > 0),
+  CONSTRAINT chk_assistant_chat_messages_payload
+    CHECK (
+      (
+        role = 'USER'
+        AND CHAR_LENGTH(TRIM(content)) BETWEEN 1 AND 500
+        AND response_json IS NULL
+      )
+      OR
+      (
+        role = 'ASSISTANT'
+        AND CHAR_LENGTH(TRIM(content)) BETWEEN 1 AND 2000
+        AND response_json IS NOT NULL
+      )
+    )
+);
+
 -- Các index phục vụ bảng tin, tra cứu chủ đề, reaction và hội thoại.
 CREATE INDEX IF NOT EXISTS users_role_index
   ON users (role);
@@ -239,6 +297,12 @@ CREATE INDEX IF NOT EXISTS messages_receiver_sender_created_index
 
 CREATE INDEX IF NOT EXISTS messages_receiver_unread_index
   ON messages (receiver_id, is_read, created_at);
+
+CREATE INDEX IF NOT EXISTS assistant_chat_conversations_user_updated_id_index
+  ON assistant_chat_conversations (user_id, updated_at, id);
+
+CREATE UNIQUE INDEX IF NOT EXISTS assistant_chat_messages_conversation_position_unique
+  ON assistant_chat_messages (conversation_id, position);
 
 -- PostgreSQL không có ON UPDATE CURRENT_TIMESTAMP ở định nghĩa cột.
 -- Trigger dùng chung này duy trì updated_at cho mọi bảng có thể cập nhật.
@@ -291,6 +355,20 @@ CREATE TRIGGER reactions_set_updated_at
 DROP TRIGGER IF EXISTS messages_set_updated_at ON messages;
 CREATE TRIGGER messages_set_updated_at
   BEFORE UPDATE ON messages
+  FOR EACH ROW
+  EXECUTE FUNCTION artly_set_updated_at();
+
+DROP TRIGGER IF EXISTS assistant_chat_conversations_set_updated_at
+  ON assistant_chat_conversations;
+CREATE TRIGGER assistant_chat_conversations_set_updated_at
+  BEFORE UPDATE ON assistant_chat_conversations
+  FOR EACH ROW
+  EXECUTE FUNCTION artly_set_updated_at();
+
+DROP TRIGGER IF EXISTS assistant_chat_messages_set_updated_at
+  ON assistant_chat_messages;
+CREATE TRIGGER assistant_chat_messages_set_updated_at
+  BEFORE UPDATE ON assistant_chat_messages
   FOR EACH ROW
   EXECUTE FUNCTION artly_set_updated_at();
 
@@ -513,33 +591,40 @@ ON CONFLICT (id) DO UPDATE SET
   exam_name = EXCLUDED.exam_name,
   status = EXCLUDED.status;
 
-INSERT INTO post_topics (post_id, topic_id)
+INSERT INTO post_topics (id, post_id, topic_id)
 VALUES
   (
+    '35000000-0000-4000-8000-000000000001',
     '20000000-0000-4000-8000-000000000001',
     '10000000-0000-4000-8000-000000000001'
   ),
   (
+    '35000000-0000-4000-8000-000000000002',
     '20000000-0000-4000-8000-000000000001',
     '10000000-0000-4000-8000-000000000003'
   ),
   (
+    '35000000-0000-4000-8000-000000000003',
     '20000000-0000-4000-8000-000000000002',
     '10000000-0000-4000-8000-000000000004'
   ),
   (
+    '35000000-0000-4000-8000-000000000004',
     '20000000-0000-4000-8000-000000000003',
     '10000000-0000-4000-8000-000000000005'
   ),
   (
+    '35000000-0000-4000-8000-000000000005',
     '20000000-0000-4000-8000-000000000004',
     '10000000-0000-4000-8000-000000000002'
   ),
   (
+    '35000000-0000-4000-8000-000000000006',
     '20000000-0000-4000-8000-000000000005',
     '10000000-0000-4000-8000-000000000001'
   ),
   (
+    '35000000-0000-4000-8000-000000000007',
     '20000000-0000-4000-8000-000000000005',
     '10000000-0000-4000-8000-000000000006'
   )

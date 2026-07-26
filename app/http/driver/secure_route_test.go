@@ -3,7 +3,9 @@ package httpdriver
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,8 +13,43 @@ import (
 	"testing"
 	"time"
 
+	contractsconfig "github.com/goravel/framework/contracts/config"
+	contractshttp "github.com/goravel/framework/contracts/http"
+	contractsroute "github.com/goravel/framework/contracts/route"
 	"github.com/stretchr/testify/require"
 )
+
+func TestSecureRouteListenAlwaysPrintsRegisteredRoutes(t *testing.T) {
+	var output bytes.Buffer
+	base := &startupRouteFake{
+		routes: []contractshttp.Info{
+			{Method: "GET|HEAD", Path: "/api/v1/health"},
+			{Method: "POST", Path: "/api/v1/messages"},
+		},
+	}
+	config := &startupConfigFake{}
+	route := NewSecureRoute(base, config, Options{Output: &output})
+	listener := &failingListener{
+		address: &net.TCPAddr{
+			IP:   net.ParseIP("127.0.0.1"),
+			Port: 39091,
+		},
+	}
+
+	err := route.Listen(listener)
+
+	require.ErrorContains(t, err, "listener unavailable")
+	require.Contains(t, output.String(), "[HTTP] Registered routes (2)")
+	require.Contains(t, output.String(), "GET|HEAD")
+	require.Contains(t, output.String(), "/api/v1/health")
+	require.Contains(t, output.String(), "POST")
+	require.Contains(t, output.String(), "/api/v1/messages")
+	require.Contains(
+		t,
+		output.String(),
+		"[HTTP] Listening on: http://127.0.0.1:39091",
+	)
+}
 
 func TestRequestBoundaryRejectsKnownOversizedBodyBeforeHandler(t *testing.T) {
 	var called atomic.Bool
@@ -133,6 +170,32 @@ func TestRequestBoundaryReturnsJSONTimeoutContract(t *testing.T) {
 		response.Header().Get("Content-Type"),
 	)
 	require.Equal(t, "nosniff", response.Header().Get("X-Content-Type-Options"))
+}
+
+func TestRequestBoundaryAllowsLongerAssistantTimeout(t *testing.T) {
+	handler := newRequestBoundaryHandler(
+		http.HandlerFunc(func(
+			writer http.ResponseWriter,
+			_ *http.Request,
+		) {
+			time.Sleep(20 * time.Millisecond)
+			writer.WriteHeader(http.StatusNoContent)
+		}),
+		1024,
+		5*time.Millisecond,
+		100*time.Millisecond,
+	)
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/api/v1/assistant/questions",
+		strings.NewReader(`{"question":"Bạn là ai?"}`),
+	)
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	require.Equal(t, http.StatusNoContent, response.Code)
 }
 
 func TestRequestBoundaryDoesNotAffectNonAPIRoutes(t *testing.T) {
@@ -276,4 +339,46 @@ func (reader *countingReader) Read(buffer []byte) (int, error) {
 	count, err := reader.reader.Read(buffer)
 	reader.bytesRead.Add(int64(count))
 	return count, err
+}
+
+type failingListener struct {
+	address net.Addr
+}
+
+func (listener *failingListener) Accept() (net.Conn, error) {
+	return nil, errors.New("listener unavailable")
+}
+
+func (listener *failingListener) Close() error {
+	return nil
+}
+
+func (listener *failingListener) Addr() net.Addr {
+	return listener.address
+}
+
+type startupRouteFake struct {
+	contractsroute.Route
+	routes []contractshttp.Info
+}
+
+func (route *startupRouteFake) GetRoutes() []contractshttp.Info {
+	return route.routes
+}
+
+func (route *startupRouteFake) ServeHTTP(
+	http.ResponseWriter,
+	*http.Request,
+) {
+}
+
+type startupConfigFake struct {
+	contractsconfig.Config
+}
+
+func (config *startupConfigFake) GetInt(
+	string,
+	...int,
+) int {
+	return 32
 }

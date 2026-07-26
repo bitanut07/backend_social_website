@@ -11,6 +11,14 @@ import (
 
 func init() {
 	config := facades.Config()
+	assistantRequestTimeout := configuredHTTPDuration(
+		config.EnvString("HTTP_ASSISTANT_REQUEST_TIMEOUT", "110s"),
+		110*time.Second,
+	)
+	writeTimeout := configuredHTTPDuration(
+		config.EnvString("HTTP_WRITE_TIMEOUT", "115s"),
+		115*time.Second,
+	)
 	config.Add("http", map[string]any{
 		"default": "gin",
 		// HTTP Drivers
@@ -24,8 +32,10 @@ func init() {
 						ginfacades.Route("gin"),
 						config,
 						httpdriver.Options{
-							MaxBodyBytes:   64 * 1024,
-							RequestTimeout: 3 * time.Second,
+							MaxBodyBytes:            64 * 1024,
+							RequestTimeout:          3 * time.Second,
+							AssistantRequestTimeout: assistantRequestTimeout,
+							WriteTimeout:            writeTimeout,
 						},
 					), nil
 				},
@@ -87,4 +97,13 @@ func init() {
 			},
 		},
 	})
+}
+
+func configuredHTTPDuration(value string, fallback time.Duration) time.Duration {
+	duration, err := time.ParseDuration(value)
+	if err != nil || duration <= 0 {
+		return fallback
+	}
+
+	return duration
 }

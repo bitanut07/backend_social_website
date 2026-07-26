@@ -44,6 +44,7 @@ func Web() {
 
 	healthController := controllers.NewHealthController()
 	contentController := controllers.NewContentController()
+	commentController := controllers.NewCommentController()
 	messageController := controllers.NewMessageController()
 	assistantController := controllers.NewAssistantController()
 
@@ -55,14 +56,31 @@ func Web() {
 			assistantRouter := router.Middleware(middleware.Throttle("assistant"))
 
 			router.Get("/health", healthController.Show)
+			writeRouter.Post("/demo/sessions", contentController.CreateDemoSession)
 			router.Get("/users", contentController.ListUsers)
+			writeRouter.Put("/users/me", contentController.UpdateProfile)
 			router.Get("/topics", contentController.ListTopics)
 			router.Get("/posts", contentController.ListPosts)
 			writeRouter.Post("/posts", contentController.CreatePost)
+			writeRouter.Delete("/posts/{id}", contentController.DeletePost)
+			router.Get("/posts/{id}/comments", commentController.List)
+			writeRouter.Post("/posts/{id}/comments", commentController.Create)
+			writeRouter.Delete(
+				"/posts/{id}/comments/{commentId}",
+				commentController.Delete,
+			)
 			writeRouter.Put("/posts/{id}/reaction", contentController.PutReaction)
 			writeRouter.Delete("/posts/{id}/reaction", contentController.DeleteReaction)
 			router.Get("/messages", messageController.List)
 			writeRouter.Post("/messages", messageController.Create)
+			assistantRouter.Get(
+				"/assistant/conversations",
+				assistantController.ListConversations,
+			)
+			assistantRouter.Get(
+				"/assistant/conversations/{id}",
+				assistantController.ShowConversation,
+			)
 			assistantRouter.Post("/assistant/questions", assistantController.Ask)
 		})
 

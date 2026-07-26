@@ -3,6 +3,8 @@ package controllers
 import (
 	"strings"
 	"testing"
+
+	"goravel/app/services"
 )
 
 const (
@@ -156,6 +158,75 @@ func TestDecodeAndValidateCreatePostCanonicalizesTopicUUIDs(t *testing.T) {
 			request.TopicIDs,
 			contentControllerCanonicalUUID,
 		)
+	}
+}
+
+func TestDecodeAndValidateDemoLogin(t *testing.T) {
+	t.Parallel()
+
+	request, err := decodeAndValidateDemoLogin(strings.NewReader(`{
+		"username": " @THU.HA.CAFE ",
+		"password": " artly-demo "
+	}`))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if request.Username != "thu.ha.cafe" {
+		t.Fatalf("username = %q, want normalized username", request.Username)
+	}
+	if request.Password != "artly-demo" {
+		t.Fatalf("password = %q, want trimmed password", request.Password)
+	}
+
+	tests := []struct {
+		name     string
+		body     string
+		wantKind inputErrorKind
+	}{
+		{
+			name:     "rejects malformed JSON",
+			body:     `{"username":`,
+			wantKind: inputErrorMalformed,
+		},
+		{
+			name: "rejects unknown fields",
+			body: `{
+				"username":"thu.ha.cafe",
+				"password":"artly-demo",
+				"role":"STUDENT"
+			}`,
+			wantKind: inputErrorValidation,
+		},
+		{
+			name:     "rejects blank username",
+			body:     `{"username":" ","password":"artly-demo"}`,
+			wantKind: inputErrorValidation,
+		},
+		{
+			name:     "rejects blank password",
+			body:     `{"username":"thu.ha.cafe","password":" "}`,
+			wantKind: inputErrorValidation,
+		},
+		{
+			name:     "rejects invalid username",
+			body:     `{"username":"Thu Ha","password":"artly-demo"}`,
+			wantKind: inputErrorValidation,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, inputErr := decodeAndValidateDemoLogin(strings.NewReader(tt.body))
+			if inputErr == nil {
+				t.Fatal("expected an error, got nil")
+			}
+			if inputErr.Kind != tt.wantKind {
+				t.Fatalf("got error kind %q, want %q", inputErr.Kind, tt.wantKind)
+			}
+		})
 	}
 }
 
@@ -320,6 +391,38 @@ func TestParseRequiredResourceID(t *testing.T) {
 			inputErr.Kind != inputErrorMalformed {
 			t.Fatalf("parseRequiredResourceID(%q) error = %#v, want malformed", invalid, inputErr)
 		}
+	}
+}
+
+func TestContentServiceFailureMapsPostOwnershipDenialToForbidden(t *testing.T) {
+	t.Parallel()
+
+	failure := contentServiceFailure(services.ErrForbidden)
+
+	if failure.status != 403 {
+		t.Fatalf("forbidden status = %d, want 403", failure.status)
+	}
+	if failure.code != "FORBIDDEN" {
+		t.Fatalf("forbidden code = %q, want FORBIDDEN", failure.code)
+	}
+	if failure.message != "Bạn chỉ có thể xóa bài viết của chính mình" {
+		t.Fatalf("forbidden message = %q", failure.message)
+	}
+}
+
+func TestContentServiceFailureMapsInvalidDemoCredentialsToUnauthorized(t *testing.T) {
+	t.Parallel()
+
+	failure := contentServiceFailure(services.ErrInvalidDemoCredentials)
+
+	if failure.status != 401 {
+		t.Fatalf("invalid credentials status = %d, want 401", failure.status)
+	}
+	if failure.code != "INVALID_DEMO_CREDENTIALS" {
+		t.Fatalf("invalid credentials code = %q", failure.code)
+	}
+	if failure.message != "Sai tài khoản hoặc mật khẩu demo" {
+		t.Fatalf("invalid credentials message = %q", failure.message)
 	}
 }
 

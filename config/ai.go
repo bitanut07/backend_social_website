@@ -43,5 +43,16 @@ func init() {
 				},
 			},
 		},
+		"model_llm": map[string]any{
+			"host":                    config.Env("MODEL_LLM_HOST", ""),
+			"ssh_port":                config.Env("MODEL_LLM_SSH_PORT", 22),
+			"ssh_user":                config.Env("MODEL_LLM_SSH_USER", ""),
+			"ssh_key_path":            config.Env("MODEL_LLM_SSH_KEY_PATH", ""),
+			"host_key_sha256":         config.Env("MODEL_LLM_HOST_KEY_SHA256", ""),
+			"remote_address":          config.Env("MODEL_LLM_REMOTE_ADDRESS", "127.0.0.1:11434"),
+			"model":                   config.Env("MODEL_LLM_MODEL", "qwen3:1.7b"),
+			"connect_timeout_seconds": config.Env("MODEL_LLM_CONNECT_TIMEOUT_SECONDS", 8),
+			"request_timeout_seconds": config.Env("MODEL_LLM_REQUEST_TIMEOUT_SECONDS", 90),
+		},
 	})
 }

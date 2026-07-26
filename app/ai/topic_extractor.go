@@ -25,6 +25,10 @@ type OpenAITopicExtractor struct {
 	timeout  time.Duration
 }
 
+type TopicExtractor interface {
+	Extract(context.Context, string) (string, error)
+}
+
 func NewOpenAITopicExtractor(
 	client contractsai.AI,
 	resolver tools.TopicResolver,
@@ -36,14 +40,28 @@ func NewOpenAITopicExtractor(
 	}
 }
 
-func NewConfiguredOpenAITopicExtractor(resolver tools.TopicResolver) *OpenAITopicExtractor {
-	provider := strings.ToLower(strings.TrimSpace(facades.Config().GetString("ai.default")))
-	apiKey := strings.TrimSpace(facades.Config().GetString("ai.providers.openai.key"))
+func NewConfiguredOpenAITopicExtractor(resolver tools.TopicResolver) TopicExtractor {
+	return newConfiguredOpenAITopicExtractor(
+		facades.Config().GetString("ai.default"),
+		facades.Config().GetString("ai.providers.openai.key"),
+		facades.AI,
+		resolver,
+	)
+}
+
+func newConfiguredOpenAITopicExtractor(
+	provider string,
+	apiKey string,
+	clientFactory func() contractsai.AI,
+	resolver tools.TopicResolver,
+) TopicExtractor {
+	provider = strings.ToLower(strings.TrimSpace(provider))
+	apiKey = strings.TrimSpace(apiKey)
 	if provider != "openai" || apiKey == "" {
 		return nil
 	}
 
-	return NewOpenAITopicExtractor(facades.AI(), resolver)
+	return NewOpenAITopicExtractor(clientFactory(), resolver)
 }
 
 func (e *OpenAITopicExtractor) Extract(

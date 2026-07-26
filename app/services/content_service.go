@@ -4,14 +4,24 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"goravel/app/repositories"
 )
 
 var (
-	ErrDemoUserNotFound = errors.New("không tìm thấy tài khoản mẫu")
-	ErrNotFound         = repositories.ErrNotFound
+	ErrDemoUserNotFound       = errors.New("không tìm thấy tài khoản mẫu")
+	ErrInvalidDemoCredentials = errors.New("tài khoản hoặc mật khẩu demo không hợp lệ")
+	ErrNotFound               = repositories.ErrNotFound
+	ErrForbidden              = repositories.ErrForbidden
 )
+
+const DemoPassword = "artly-demo"
+
+type DemoLoginInput struct {
+	Username string
+	Password string
+}
 
 type MissingTopicsError struct {
 	TopicIDs []string
@@ -40,6 +50,39 @@ func (s *ContentService) ListUsers(
 	return s.repository.ListUsers(ctx, page, pageSize)
 }
 
+func (s *ContentService) DemoLogin(
+	ctx context.Context,
+	input DemoLoginInput,
+) (repositories.User, error) {
+	username := normalizeDemoUsername(input.Username)
+	password := strings.TrimSpace(input.Password)
+	if username == "" || password != DemoPassword {
+		return repositories.User{}, ErrInvalidDemoCredentials
+	}
+
+	user, err := s.repository.UserByUsername(ctx, username)
+	if errors.Is(err, repositories.ErrNotFound) {
+		return repositories.User{}, ErrInvalidDemoCredentials
+	}
+	if err != nil {
+		return repositories.User{}, err
+	}
+
+	return user, nil
+}
+
+func (s *ContentService) UpdateProfile(
+	ctx context.Context,
+	userID string,
+	input repositories.UpdateProfileInput,
+) (repositories.User, error) {
+	if err := s.requireDemoUser(ctx, userID); err != nil {
+		return repositories.User{}, err
+	}
+
+	return s.repository.UpdateProfile(ctx, userID, input)
+}
+
 func (s *ContentService) ListTopics(
 	ctx context.Context,
 	page, pageSize int,
@@ -51,7 +94,7 @@ func (s *ContentService) ListPosts(
 	ctx context.Context,
 	viewerID string,
 	page, pageSize int,
-	topicID *string,
+	topicID, authorID *string,
 ) ([]repositories.Post, int64, error) {
 	if err := s.requireDemoUser(ctx, viewerID); err != nil {
 		return nil, 0, err
@@ -67,7 +110,17 @@ func (s *ContentService) ListPosts(
 		}
 	}
 
-	return s.repository.ListPosts(ctx, viewerID, page, pageSize, topicID)
+	if authorID != nil {
+		exists, err := s.repository.UserExists(ctx, *authorID)
+		if err != nil {
+			return nil, 0, err
+		}
+		if !exists {
+			return nil, 0, ErrNotFound
+		}
+	}
+
+	return s.repository.ListPosts(ctx, viewerID, page, pageSize, topicID, authorID)
 }
 
 func (s *ContentService) CreatePost(
@@ -88,6 +141,17 @@ func (s *ContentService) CreatePost(
 	}
 
 	return s.repository.CreatePost(ctx, userID, input)
+}
+
+func (s *ContentService) DeletePost(
+	ctx context.Context,
+	userID, postID string,
+) error {
+	if err := s.requireDemoUser(ctx, userID); err != nil {
+		return err
+	}
+
+	return s.repository.DeletePost(ctx, userID, postID)
 }
 
 func (s *ContentService) PutReaction(
@@ -128,6 +192,10 @@ func (s *ContentService) requireDemoUser(ctx context.Context, userID string) err
 	}
 
 	return nil
+}
+
+func normalizeDemoUsername(username string) string {
+	return strings.ToLower(strings.TrimPrefix(strings.TrimSpace(username), "@"))
 }
 
 func (s *ContentService) requirePost(ctx context.Context, postID string) error {

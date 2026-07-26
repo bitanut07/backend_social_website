@@ -31,11 +31,17 @@ type contentPostListRequest struct {
 	page     int
 	pageSize int
 	topicID  *string
+	authorID *string
 }
 
 type contentCreateRequest struct {
 	userID string
 	input  repositories.CreatePostInput
+}
+
+type contentProfileUpdateRequest struct {
+	userID string
+	input  repositories.UpdateProfileInput
 }
 
 type contentReactionRequest struct {
@@ -44,11 +50,13 @@ type contentReactionRequest struct {
 }
 
 type fakeContentRepository struct {
-	usersByID  map[string]bool
-	topicsByID map[string]bool
-	postsByID  map[string]bool
+	usersByID       map[string]bool
+	usersByUsername map[string]repositories.User
+	topicsByID      map[string]bool
+	postsByID       map[string]bool
 
 	userExistsErr     error
+	userByUsernameErr error
 	topicExistsErr    error
 	missingTopicsErr  error
 	postExistsErr     error
@@ -56,6 +64,8 @@ type fakeContentRepository struct {
 	listTopicsErr     error
 	listPostsErr      error
 	createPostErr     error
+	updateProfileErr  error
+	deletePostErr     error
 	putReactionErr    error
 	deleteReactionErr error
 
@@ -66,20 +76,24 @@ type fakeContentRepository struct {
 	posts               []repositories.Post
 	postsTotal          int64
 	createdPost         repositories.Post
+	updatedProfile      repositories.User
 	missingTopicIDs     []string
 	putReactionState    repositories.ReactionState
 	deleteReactionState repositories.ReactionState
 
-	userExistenceChecks  []string
-	topicExistenceChecks []string
-	postExistenceChecks  []string
-	missingTopicChecks   [][]string
-	listUserRequests     []contentListRequest
-	listTopicRequests    []contentListRequest
-	listPostRequests     []contentPostListRequest
-	createRequests       []contentCreateRequest
-	putRequests          []contentReactionRequest
-	deleteRequests       []contentReactionRequest
+	userExistenceChecks   []string
+	userByUsernameChecks  []string
+	topicExistenceChecks  []string
+	postExistenceChecks   []string
+	missingTopicChecks    [][]string
+	listUserRequests      []contentListRequest
+	listTopicRequests     []contentListRequest
+	listPostRequests      []contentPostListRequest
+	createRequests        []contentCreateRequest
+	updateProfileRequests []contentProfileUpdateRequest
+	deletePostRequests    []contentReactionRequest
+	putRequests           []contentReactionRequest
+	deleteRequests        []contentReactionRequest
 }
 
 func (f *fakeContentRepository) ListUsers(
@@ -89,6 +103,23 @@ func (f *fakeContentRepository) ListUsers(
 ) ([]repositories.User, int64, error) {
 	f.listUserRequests = append(f.listUserRequests, contentListRequest{page: page, pageSize: pageSize})
 	return f.users, f.usersTotal, f.listUsersErr
+}
+
+func (f *fakeContentRepository) UserByUsername(
+	_ context.Context,
+	username string,
+) (repositories.User, error) {
+	f.userByUsernameChecks = append(f.userByUsernameChecks, username)
+	if f.userByUsernameErr != nil {
+		return repositories.User{}, f.userByUsernameErr
+	}
+
+	user, exists := f.usersByUsername[username]
+	if !exists {
+		return repositories.User{}, repositories.ErrNotFound
+	}
+
+	return user, nil
 }
 
 func (f *fakeContentRepository) ListTopics(
@@ -145,20 +176,39 @@ func (f *fakeContentRepository) ListPosts(
 	page int,
 	pageSize int,
 	topicID *string,
+	authorID *string,
 ) ([]repositories.Post, int64, error) {
 	var capturedTopicID *string
 	if topicID != nil {
 		value := *topicID
 		capturedTopicID = &value
 	}
+	var capturedAuthorID *string
+	if authorID != nil {
+		value := *authorID
+		capturedAuthorID = &value
+	}
 	f.listPostRequests = append(f.listPostRequests, contentPostListRequest{
 		viewerID: viewerID,
 		page:     page,
 		pageSize: pageSize,
 		topicID:  capturedTopicID,
+		authorID: capturedAuthorID,
 	})
 
 	return f.posts, f.postsTotal, f.listPostsErr
+}
+
+func (f *fakeContentRepository) UpdateProfile(
+	_ context.Context,
+	userID string,
+	input repositories.UpdateProfileInput,
+) (repositories.User, error) {
+	f.updateProfileRequests = append(
+		f.updateProfileRequests,
+		contentProfileUpdateRequest{userID: userID, input: input},
+	)
+	return f.updatedProfile, f.updateProfileErr
 }
 
 func (f *fakeContentRepository) CreatePost(
@@ -170,6 +220,18 @@ func (f *fakeContentRepository) CreatePost(
 	return f.createdPost, f.createPostErr
 }
 
+func (f *fakeContentRepository) DeletePost(
+	_ context.Context,
+	userID string,
+	postID string,
+) error {
+	f.deletePostRequests = append(
+		f.deletePostRequests,
+		contentReactionRequest{userID: userID, postID: postID},
+	)
+	return f.deletePostErr
+}
+
 func (f *fakeContentRepository) PutReaction(
 	_ context.Context,
 	userID string,
@@ -177,6 +239,64 @@ func (f *fakeContentRepository) PutReaction(
 ) (repositories.ReactionState, error) {
 	f.putRequests = append(f.putRequests, contentReactionRequest{userID: userID, postID: postID})
 	return f.putReactionState, f.putReactionErr
+}
+
+func TestContentServiceDeletePostRequiresKnownUserAndPreservesOwnershipErrors(t *testing.T) {
+	t.Parallel()
+
+	t.Run("unknown user", func(t *testing.T) {
+		t.Parallel()
+
+		repository := &fakeContentRepository{usersByID: map[string]bool{}}
+		service := NewContentService(repository)
+
+		err := service.DeletePost(
+			context.Background(),
+			contentServiceUnknownUserID,
+			contentServicePostID,
+		)
+
+		if !errors.Is(err, ErrDemoUserNotFound) {
+			t.Fatalf("DeletePost error = %v, want ErrDemoUserNotFound", err)
+		}
+		if len(repository.deletePostRequests) != 0 {
+			t.Fatalf(
+				"DeletePost repository requests = %#v, want none",
+				repository.deletePostRequests,
+			)
+		}
+	})
+
+	t.Run("repository ownership error", func(t *testing.T) {
+		t.Parallel()
+
+		repository := &fakeContentRepository{
+			usersByID:     map[string]bool{contentServiceOtherUserID: true},
+			deletePostErr: ErrForbidden,
+		}
+		service := NewContentService(repository)
+
+		err := service.DeletePost(
+			context.Background(),
+			contentServiceOtherUserID,
+			contentServicePostID,
+		)
+
+		if !errors.Is(err, ErrForbidden) {
+			t.Fatalf("DeletePost error = %v, want ErrForbidden", err)
+		}
+		want := []contentReactionRequest{{
+			userID: contentServiceOtherUserID,
+			postID: contentServicePostID,
+		}}
+		if !reflect.DeepEqual(repository.deletePostRequests, want) {
+			t.Fatalf(
+				"DeletePost repository requests = %#v, want %#v",
+				repository.deletePostRequests,
+				want,
+			)
+		}
+	})
 }
 
 func (f *fakeContentRepository) DeleteReaction(
@@ -254,10 +374,89 @@ func TestContentServiceListsUsersAndTopicsThroughRepository(t *testing.T) {
 	})
 }
 
+func TestContentServiceDemoLoginAuthenticatesDemoCredentials(t *testing.T) {
+	t.Parallel()
+
+	wantUser := repositories.User{
+		ID:          contentServiceUserID,
+		Username:    "thu.ha.cafe",
+		DisplayName: "Lê Thu Hà",
+		Role:        "STUDENT",
+	}
+
+	t.Run("valid credentials", func(t *testing.T) {
+		t.Parallel()
+
+		repository := &fakeContentRepository{
+			usersByUsername: map[string]repositories.User{
+				wantUser.Username: wantUser,
+			},
+		}
+		service := NewContentService(repository)
+
+		user, err := service.DemoLogin(context.Background(), DemoLoginInput{
+			Username: " @THU.HA.CAFE ",
+			Password: " " + DemoPassword + " ",
+		})
+
+		if err != nil {
+			t.Fatalf("DemoLogin returned unexpected error: %v", err)
+		}
+		if !reflect.DeepEqual(user, wantUser) {
+			t.Fatalf("DemoLogin user = %#v, want %#v", user, wantUser)
+		}
+		if !reflect.DeepEqual(repository.userByUsernameChecks, []string{wantUser.Username}) {
+			t.Fatalf(
+				"username checks = %#v, want %#v",
+				repository.userByUsernameChecks,
+				[]string{wantUser.Username},
+			)
+		}
+	})
+
+	t.Run("wrong password", func(t *testing.T) {
+		t.Parallel()
+
+		repository := &fakeContentRepository{}
+		service := NewContentService(repository)
+
+		_, err := service.DemoLogin(context.Background(), DemoLoginInput{
+			Username: wantUser.Username,
+			Password: "wrong-password",
+		})
+
+		if !errors.Is(err, ErrInvalidDemoCredentials) {
+			t.Fatalf("DemoLogin error = %v, want ErrInvalidDemoCredentials", err)
+		}
+		if len(repository.userByUsernameChecks) != 0 {
+			t.Fatalf("repository should not be called on wrong password")
+		}
+	})
+
+	t.Run("unknown username", func(t *testing.T) {
+		t.Parallel()
+
+		repository := &fakeContentRepository{
+			usersByUsername: map[string]repositories.User{},
+		}
+		service := NewContentService(repository)
+
+		_, err := service.DemoLogin(context.Background(), DemoLoginInput{
+			Username: "unknown.user",
+			Password: DemoPassword,
+		})
+
+		if !errors.Is(err, ErrInvalidDemoCredentials) {
+			t.Fatalf("DemoLogin error = %v, want ErrInvalidDemoCredentials", err)
+		}
+	})
+}
+
 func TestContentServiceListPostsValidatesViewerAndTopicBeforeListing(t *testing.T) {
 	t.Parallel()
 
 	topicID := contentServiceTopicID
+	authorID := contentServiceOtherUserID
 	wantPosts := []repositories.Post{
 		{
 			ID:               contentServicePostID,
@@ -271,6 +470,7 @@ func TestContentServiceListPostsValidatesViewerAndTopicBeforeListing(t *testing.
 		name                    string
 		viewerID                string
 		topicID                 *string
+		authorID                *string
 		usersByID               map[string]bool
 		topicsByID              map[string]bool
 		wantErr                 error
@@ -312,6 +512,14 @@ func TestContentServiceListPostsValidatesViewerAndTopicBeforeListing(t *testing.
 			wantTopicChecks:         []string{topicID},
 			wantRepositoryListCalls: 1,
 		},
+		{
+			name:                    "existing author filter",
+			viewerID:                contentServiceUserID,
+			authorID:                &authorID,
+			usersByID:               map[string]bool{contentServiceUserID: true, contentServiceOtherUserID: true},
+			topicsByID:              map[string]bool{},
+			wantRepositoryListCalls: 1,
+		},
 	}
 
 	for _, tt := range tests {
@@ -327,7 +535,7 @@ func TestContentServiceListPostsValidatesViewerAndTopicBeforeListing(t *testing.
 			}
 			service := NewContentService(repository)
 
-			posts, total, err := service.ListPosts(context.Background(), tt.viewerID, 2, 10, tt.topicID)
+			posts, total, err := service.ListPosts(context.Background(), tt.viewerID, 2, 10, tt.topicID, tt.authorID)
 
 			if tt.wantErr != nil {
 				if !errors.Is(err, tt.wantErr) {
@@ -355,6 +563,9 @@ func TestContentServiceListPostsValidatesViewerAndTopicBeforeListing(t *testing.
 				}
 				if !equalOptionalString(request.topicID, tt.topicID) {
 					t.Fatalf("repository topic filter = %#v, want %#v", request.topicID, tt.topicID)
+				}
+				if !equalOptionalString(request.authorID, tt.authorID) {
+					t.Fatalf("repository author filter = %#v, want %#v", request.authorID, tt.authorID)
 				}
 			}
 		})
@@ -678,6 +889,18 @@ func TestContentServicePropagatesRepositoryErrors(t *testing.T) {
 			},
 		},
 		{
+			name: "demo login user query",
+			run: func(repository *fakeContentRepository) error {
+				repository.userByUsernameErr = repositoryErr
+				service := NewContentService(repository)
+				_, err := service.DemoLogin(context.Background(), DemoLoginInput{
+					Username: "thu.ha.cafe",
+					Password: DemoPassword,
+				})
+				return err
+			},
+		},
+		{
 			name: "list posts user check",
 			run: func(repository *fakeContentRepository) error {
 				repository.userExistsErr = repositoryErr
@@ -687,6 +910,7 @@ func TestContentServicePropagatesRepositoryErrors(t *testing.T) {
 					contentServiceUserID,
 					1,
 					10,
+					nil,
 					nil,
 				)
 				return err
@@ -704,6 +928,7 @@ func TestContentServicePropagatesRepositoryErrors(t *testing.T) {
 					1,
 					10,
 					&topicID,
+					nil,
 				)
 				return err
 			},
@@ -719,6 +944,7 @@ func TestContentServicePropagatesRepositoryErrors(t *testing.T) {
 					contentServiceUserID,
 					1,
 					10,
+					nil,
 					nil,
 				)
 				return err

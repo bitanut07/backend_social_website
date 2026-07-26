@@ -18,6 +18,14 @@ func (r *M20260724000001CreateArtlySocialTables) Signature() string {
 
 // Up creates the Artly tables in foreign-key dependency order.
 func (r *M20260724000001CreateArtlySocialTables) Up() error {
+	richSchema, err := usesSupabaseSocialSchema()
+	if err != nil {
+		return err
+	}
+	if richSchema {
+		return nil
+	}
+
 	if err := createUsersTable(); err != nil {
 		return err
 	}
@@ -44,6 +52,27 @@ func (r *M20260724000001CreateArtlySocialTables) Up() error {
 	}
 
 	return ensureUpdatedAtTriggers()
+}
+
+// usesSupabaseSocialSchema detects the richer Artly schema, where post media
+// lives in post_media rather than posts.image_url. That schema is managed by
+// Supabase migrations and must not receive constraints for the compact demo
+// schema.
+func usesSupabaseSocialSchema() (bool, error) {
+	postsExist, err := currentSchemaHasTable("posts")
+	if err != nil || !postsExist {
+		return false, err
+	}
+
+	hasImageURL, err := currentSchemaHasColumn("posts", "image_url")
+	if err != nil {
+		return false, err
+	}
+	hasPostMedia, err := currentSchemaHasTable("post_media")
+	if err != nil {
+		return false, err
+	}
+	return !hasImageURL && hasPostMedia, nil
 }
 
 // Down drops dependent tables before the tables they reference.
@@ -140,11 +169,12 @@ func createPostsTable() error {
 
 func createPostTopicsTable() error {
 	return createTableIfMissing("post_topics", func(table contractsschema.Blueprint) {
+		addUUIDPrimaryKey(table)
 		table.Uuid("post_id")
 		table.Uuid("topic_id")
 		addTimestamps(table)
 
-		table.Primary("post_id", "topic_id")
+		table.Unique("post_id", "topic_id").Name("post_topics_pair_unique")
 		table.Index("topic_id", "post_id").Name("post_topics_topic_post_index")
 		table.Foreign("post_id").
 			References("id").
@@ -249,6 +279,30 @@ func currentSchemaHasTable(name string) (bool, error) {
 	}
 	if len(counts) != 1 {
 		return false, fmt.Errorf("không đọc được metadata bảng")
+	}
+
+	return counts[0].Total > 0, nil
+}
+
+func currentSchemaHasColumn(table, column string) (bool, error) {
+	var counts []struct {
+		Total int64 `db:"total"`
+	}
+
+	err := facades.Schema().Orm().Query().Raw(
+		`SELECT COUNT(*) AS total
+		 FROM information_schema.columns
+		 WHERE table_schema = current_schema()
+		   AND table_name = ?
+		   AND column_name = ?`,
+		table,
+		column,
+	).Scan(&counts)
+	if err != nil {
+		return false, err
+	}
+	if len(counts) != 1 {
+		return false, fmt.Errorf("không đọc được metadata cột")
 	}
 
 	return counts[0].Total > 0, nil
@@ -359,6 +413,18 @@ func ensureCheckConstraints() error {
 }
 
 func ensureUpdatedAtTriggers() error {
+	return ensureUpdatedAtTriggersForTables(
+		"users",
+		"topics",
+		"topic_aliases",
+		"posts",
+		"post_topics",
+		"reactions",
+		"messages",
+	)
+}
+
+func ensureUpdatedAtTriggersForTables(tables ...string) error {
 	const createFunctionStatement = `CREATE OR REPLACE FUNCTION artly_set_updated_at()
 RETURNS TRIGGER
 LANGUAGE plpgsql
@@ -373,15 +439,7 @@ $$`
 		return fmt.Errorf("tạo hoặc cập nhật function cập nhật updated_at: %w", err)
 	}
 
-	for _, table := range []string{
-		"users",
-		"topics",
-		"topic_aliases",
-		"posts",
-		"post_topics",
-		"reactions",
-		"messages",
-	} {
+	for _, table := range tables {
 		trigger := table + "_set_updated_at"
 
 		if err := facades.Schema().Sql(fmt.Sprintf(

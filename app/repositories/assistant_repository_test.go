@@ -148,7 +148,13 @@ func TestAssistantRepositoryResolveTopicByCanonicalName(t *testing.T) {
 	if len(topic.Aliases) != 2 || topic.Aliases[0] != "cảnh vật" || topic.Aliases[1] != "landscape" {
 		t.Fatalf("ResolveTopic() aliases = %#v", topic.Aliases)
 	}
-	assertAssistantQueryCall(t, topicQuery.calls, "Where", "normalized_name = ?", []any{normalized})
+	assertAssistantQueryCall(
+		t,
+		topicQuery.calls,
+		"Where",
+		"normalized_name IN (?, ?)",
+		[]any{normalized, `phong-canh"-OR-1=1---`},
+	)
 	assertAssistantQueryCall(
 		t,
 		aliasQuery.calls,
@@ -200,8 +206,8 @@ func TestAssistantRepositoryResolveTopicByAlias(t *testing.T) {
 		t,
 		aliasLookupQuery.calls,
 		"Where",
-		"topic_aliases.normalized_alias = ?",
-		[]any{"canh vat"},
+		"topic_aliases.normalized_alias IN (?, ?)",
+		[]any{"canh vat", "canh-vat"},
 	)
 }
 

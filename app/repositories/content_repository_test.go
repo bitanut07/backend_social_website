@@ -12,15 +12,18 @@ import (
 )
 
 const (
-	contentRepositoryUserID  = "00000000-0000-4000-8000-000000000001"
-	contentRepositoryTopicID = "10000000-0000-4000-8000-000000000001"
-	contentRepositoryPostID  = "20000000-0000-4000-8000-000000000001"
-	contentRepositoryNewPost = "20000000-0000-4000-8000-000000000002"
+	contentRepositoryUserID     = "00000000-0000-4000-8000-000000000001"
+	contentRepositoryTopicID    = "10000000-0000-4000-8000-000000000001"
+	contentRepositoryPostID     = "20000000-0000-4000-8000-000000000001"
+	contentRepositoryNewPost    = "20000000-0000-4000-8000-000000000002"
+	contentRepositoryReactionID = "40000000-0000-4000-8000-000000000001"
 )
 
 type recordingContentDB struct {
 	contractsdb.DB
 	query            contractsdb.Query
+	queries          []contractsdb.Query
+	tableCalls       int
 	transaction      contractsdb.Tx
 	transactionErr   error
 	transactionCalls int
@@ -31,6 +34,11 @@ func (f *recordingContentDB) WithContext(context.Context) contractsdb.DB {
 }
 
 func (f *recordingContentDB) Table(string) contractsdb.Query {
+	if f.tableCalls < len(f.queries) {
+		query := f.queries[f.tableCalls]
+		f.tableCalls++
+		return query
+	}
 	return f.query
 }
 
@@ -55,14 +63,29 @@ type recordedJoin struct {
 
 type recordingContentQuery struct {
 	contractsdb.Query
-	joins       []recordedJoin
-	wheres      []recordedWhere
-	orderByDesc []string
-	paginateErr error
-	updateErr   error
-	exists      bool
-	existsErr   error
-	lockCalls   int
+	joins        []recordedJoin
+	selects      []string
+	wheres       []recordedWhere
+	whereIns     []recordedWhere
+	whereNulls   []string
+	orderBy      []string
+	orderByDesc  []string
+	groupBy      []string
+	count        int64
+	countErr     error
+	countCalls   int
+	getErr       error
+	getID        string
+	getUserID    string
+	getRows      func(any)
+	offset       uint64
+	limit        uint64
+	updateErr    error
+	updateResult *contractsdb.Result
+	updates      []recordedUpdate
+	exists       bool
+	existsErr    error
+	lockCalls    int
 }
 
 func (f *recordingContentQuery) Join(query string, args ...any) contractsdb.Query {
@@ -70,7 +93,8 @@ func (f *recordingContentQuery) Join(query string, args ...any) contractsdb.Quer
 	return f
 }
 
-func (f *recordingContentQuery) Select(...string) contractsdb.Query {
+func (f *recordingContentQuery) Select(columns ...string) contractsdb.Query {
+	f.selects = append(f.selects, columns...)
 	return f
 }
 
@@ -79,13 +103,84 @@ func (f *recordingContentQuery) Where(query any, args ...any) contractsdb.Query 
 	return f
 }
 
+func (f *recordingContentQuery) WhereIn(column string, values []any) contractsdb.Query {
+	f.whereIns = append(f.whereIns, recordedWhere{
+		query: column,
+		args:  append([]any(nil), values...),
+	})
+	return f
+}
+
+func (f *recordingContentQuery) WhereNull(column string) contractsdb.Query {
+	f.whereNulls = append(f.whereNulls, column)
+	return f
+}
+
+func (f *recordingContentQuery) OrderBy(column string, _ ...string) contractsdb.Query {
+	f.orderBy = append(f.orderBy, column)
+	return f
+}
+
 func (f *recordingContentQuery) OrderByDesc(column string) contractsdb.Query {
 	f.orderByDesc = append(f.orderByDesc, column)
 	return f
 }
 
-func (f *recordingContentQuery) Paginate(int, int, any, *int64) error {
-	return f.paginateErr
+func (f *recordingContentQuery) GroupBy(columns ...string) contractsdb.Query {
+	f.groupBy = append(f.groupBy, columns...)
+	return f
+}
+
+func (f *recordingContentQuery) Count() (int64, error) {
+	f.countCalls++
+	return f.count, f.countErr
+}
+
+func (f *recordingContentQuery) Offset(offset uint64) contractsdb.Query {
+	f.offset = offset
+	return f
+}
+
+func (f *recordingContentQuery) Limit(limit uint64) contractsdb.Query {
+	f.limit = limit
+	return f
+}
+
+func (f *recordingContentQuery) Get(destination any) error {
+	if f.getRows != nil {
+		f.getRows(destination)
+	}
+	if f.getErr == nil && (f.getID != "" || f.getUserID != "") {
+		slice := reflect.ValueOf(destination).Elem()
+		row := reflect.New(slice.Type().Elem()).Elem()
+		if f.getID != "" {
+			row.FieldByName("ID").SetString(f.getID)
+		}
+		if f.getUserID != "" {
+			row.FieldByName("UserID").SetString(f.getUserID)
+		}
+		slice.Set(reflect.Append(slice, row))
+	}
+	return f.getErr
+}
+
+type recordedUpdate struct {
+	column any
+	values []any
+}
+
+func (f *recordingContentQuery) Update(
+	column any,
+	values ...any,
+) (*contractsdb.Result, error) {
+	f.updates = append(f.updates, recordedUpdate{
+		column: column,
+		values: append([]any(nil), values...),
+	})
+	if f.updateResult == nil {
+		return &contractsdb.Result{RowsAffected: 1}, f.updateErr
+	}
+	return f.updateResult, f.updateErr
 }
 
 func (f *recordingContentQuery) UpdateOrInsert(any, any) (*contractsdb.Result, error) {
@@ -104,12 +199,19 @@ func (f *recordingContentQuery) Exists() (bool, error) {
 type recordingContentTx struct {
 	contractsdb.Tx
 	query          contractsdb.Query
+	queries        []contractsdb.Query
+	tableCalls     int
 	selectErr      error
 	selectedPostID string
 	selects        []recordedRawSelect
 }
 
 func (f *recordingContentTx) Table(string) contractsdb.Query {
+	if f.tableCalls < len(f.queries) {
+		query := f.queries[f.tableCalls]
+		f.tableCalls++
+		return query
+	}
 	return f.query
 }
 
@@ -135,10 +237,12 @@ func TestContentRepositoryListPostsUsesStableOrderAndBoundTopicFilter(t *testing
 	t.Parallel()
 
 	stopAfterQuery := errors.New("stop after query construction")
-	query := &recordingContentQuery{paginateErr: stopAfterQuery}
-	database := &recordingContentDB{query: query}
+	countQuery := &recordingContentQuery{}
+	query := &recordingContentQuery{getErr: stopAfterQuery}
+	database := &recordingContentDB{queries: []contractsdb.Query{countQuery, query}}
 	repository := NewContentRepository(database)
 	topicID := contentRepositoryTopicID
+	authorID := contentRepositoryUserID
 
 	_, _, err := repository.ListPosts(
 		context.Background(),
@@ -146,6 +250,7 @@ func TestContentRepositoryListPostsUsesStableOrderAndBoundTopicFilter(t *testing
 		2,
 		10,
 		&topicID,
+		&authorID,
 	)
 
 	if !errors.Is(err, stopAfterQuery) {
@@ -154,14 +259,23 @@ func TestContentRepositoryListPostsUsesStableOrderAndBoundTopicFilter(t *testing
 	if !reflect.DeepEqual(query.orderByDesc, []string{"posts.created_at", "posts.id"}) {
 		t.Fatalf("descending order = %#v, want created_at then id", query.orderByDesc)
 	}
-	if len(query.joins) != 2 {
-		t.Fatalf("joins = %#v, want author and selected topic joins", query.joins)
+	if len(query.joins) != 3 {
+		t.Fatalf("joins = %#v, want author, media and selected topic joins", query.joins)
 	}
-	if query.joins[1].query != "post_topics AS selected_topic ON selected_topic.post_id = posts.id" {
-		t.Fatalf("topic join = %q", query.joins[1].query)
+	if len(countQuery.joins) != 2 {
+		t.Fatalf("count joins = %#v, want media and selected topic joins", countQuery.joins)
 	}
-	if len(query.wheres) != 2 {
-		t.Fatalf("wheres = %#v, want status and topic filters", query.wheres)
+	if query.joins[1].query != "post_media AS media ON media.post_id = posts.id AND media.position = 0" {
+		t.Fatalf("media join = %q", query.joins[1].query)
+	}
+	if !containsString(query.selects, "COALESCE(media.media_url, '') AS image_url") {
+		t.Fatalf("selected columns = %#v, want nullable media URL normalized to an empty string", query.selects)
+	}
+	if query.joins[2].query != "post_topics AS selected_topic ON selected_topic.post_id = posts.id" {
+		t.Fatalf("topic join = %q", query.joins[2].query)
+	}
+	if len(query.wheres) != 3 {
+		t.Fatalf("wheres = %#v, want status, topic and author filters", query.wheres)
 	}
 	if query.wheres[0].query != "posts.status" ||
 		!reflect.DeepEqual(query.wheres[0].args, []any{models.PostStatusPublished}) {
@@ -171,6 +285,142 @@ func TestContentRepositoryListPostsUsesStableOrderAndBoundTopicFilter(t *testing
 		!reflect.DeepEqual(query.wheres[1].args, []any{topicID}) {
 		t.Fatalf("topic filter must keep ID as a separate bound value: %#v", query.wheres[1])
 	}
+	if query.wheres[2].query != "posts.user_id" ||
+		!reflect.DeepEqual(query.wheres[2].args, []any{authorID}) {
+		t.Fatalf("author filter must keep ID as a separate bound value: %#v", query.wheres[2])
+	}
+	if !reflect.DeepEqual(query.whereNulls, []string{"posts.deleted_at"}) {
+		t.Fatalf("null filters = %#v, want soft-delete filter", query.whereNulls)
+	}
+	if query.offset != 10 || query.limit != 10 {
+		t.Fatalf("pagination = offset %d limit %d, want 10/10", query.offset, query.limit)
+	}
+}
+
+func TestContentRepositoryDeletePostOnlySoftDeletesItsAuthorPost(t *testing.T) {
+	t.Parallel()
+
+	t.Run("author", func(t *testing.T) {
+		t.Parallel()
+
+		ownerQuery := &recordingContentQuery{
+			getUserID: contentRepositoryUserID,
+		}
+		updateQuery := &recordingContentQuery{}
+		transaction := &recordingContentTx{
+			queries: []contractsdb.Query{ownerQuery, updateQuery},
+		}
+		database := &recordingContentDB{transaction: transaction}
+		repository := NewContentRepository(database)
+
+		err := repository.DeletePost(
+			context.Background(),
+			contentRepositoryUserID,
+			contentRepositoryPostID,
+		)
+
+		if err != nil {
+			t.Fatalf("DeletePost error = %v", err)
+		}
+		if ownerQuery.lockCalls != 1 {
+			t.Fatalf("owner lookup lock calls = %d, want 1", ownerQuery.lockCalls)
+		}
+		if len(updateQuery.updates) != 1 {
+			t.Fatalf("post updates = %#v, want one soft-delete", updateQuery.updates)
+		}
+		update, ok := updateQuery.updates[0].column.(map[string]any)
+		if !ok {
+			t.Fatalf("soft-delete update = %#v, want map", updateQuery.updates[0].column)
+		}
+		if update["status"] != models.PostStatusRemoved {
+			t.Fatalf("soft-delete status = %#v, want REMOVED", update["status"])
+		}
+		if _, ok = update["deleted_at"]; !ok {
+			t.Fatalf("soft-delete update = %#v, want deleted_at", update)
+		}
+		if len(updateQuery.wheres) != 2 {
+			t.Fatalf(
+				"soft-delete wheres = %#v, want post and author IDs",
+				updateQuery.wheres,
+			)
+		}
+		if !reflect.DeepEqual(
+			updateQuery.whereNulls,
+			[]string{"deleted_at"},
+		) {
+			t.Fatalf(
+				"soft-delete null filters = %#v, want deleted_at",
+				updateQuery.whereNulls,
+			)
+		}
+	})
+
+	t.Run("different user", func(t *testing.T) {
+		t.Parallel()
+
+		ownerQuery := &recordingContentQuery{
+			getUserID: contentRepositoryUserID,
+		}
+		updateQuery := &recordingContentQuery{}
+		transaction := &recordingContentTx{
+			queries: []contractsdb.Query{ownerQuery, updateQuery},
+		}
+		repository := NewContentRepository(
+			&recordingContentDB{transaction: transaction},
+		)
+
+		err := repository.DeletePost(
+			context.Background(),
+			"00000000-0000-4000-8000-000000000099",
+			contentRepositoryPostID,
+		)
+
+		if !errors.Is(err, ErrForbidden) {
+			t.Fatalf("DeletePost error = %v, want ErrForbidden", err)
+		}
+		if len(updateQuery.updates) != 0 {
+			t.Fatalf(
+				"non-author must not update post: %#v",
+				updateQuery.updates,
+			)
+		}
+	})
+
+	t.Run("missing post", func(t *testing.T) {
+		t.Parallel()
+
+		ownerQuery := &recordingContentQuery{}
+		updateQuery := &recordingContentQuery{}
+		transaction := &recordingContentTx{
+			queries: []contractsdb.Query{ownerQuery, updateQuery},
+		}
+		repository := NewContentRepository(
+			&recordingContentDB{transaction: transaction},
+		)
+
+		err := repository.DeletePost(
+			context.Background(),
+			contentRepositoryUserID,
+			contentRepositoryPostID,
+		)
+
+		if !errors.Is(err, ErrNotFound) {
+			t.Fatalf("DeletePost error = %v, want ErrNotFound", err)
+		}
+		if len(updateQuery.updates) != 0 {
+			t.Fatalf("missing post must not update: %#v", updateQuery.updates)
+		}
+	})
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+
+	return false
 }
 
 func TestContentRepositoryMutationsStartTransactions(t *testing.T) {
@@ -269,10 +519,10 @@ func TestInsertPostReturningIDUsesPostgreSQLReturningAndBoundValues(t *testing.T
 	user_id,
 	title,
 	caption,
-	image_url,
 	exam_name,
-	status
-) VALUES ($1, $2, $3, $4, $5, $6)
+	status,
+	published_at
+) VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
 RETURNING id`
 	if transaction.selects[0].query != wantQuery {
 		t.Fatalf("insert query = %q, want %q", transaction.selects[0].query, wantQuery)
@@ -282,7 +532,6 @@ RETURNING id`
 		contentRepositoryUserID,
 		input.Title,
 		input.Caption,
-		input.ImageURL,
 		input.ExamName,
 		models.PostStatusPublished,
 	}
@@ -322,7 +571,6 @@ func TestCreatePostReturnsPostgreSQLInsertError(t *testing.T) {
 		contentRepositoryUserID,
 		input.Title,
 		input.Caption,
-		input.ImageURL,
 		input.ExamName,
 		models.PostStatusPublished,
 	}) {
@@ -336,7 +584,7 @@ func TestPutReactionIdempotentlyAcceptsAConcurrentWinner(t *testing.T) {
 	duplicateInsert := errors.New("duplicate key")
 	query := &recordingContentQuery{
 		updateErr: duplicateInsert,
-		exists:    true,
+		getID:     contentRepositoryReactionID,
 	}
 	transaction := &recordingContentTx{query: query}
 
@@ -352,6 +600,9 @@ func TestPutReactionIdempotentlyAcceptsAConcurrentWinner(t *testing.T) {
 	if query.lockCalls != 1 {
 		t.Fatalf("locking existence checks = %d, want 1", query.lockCalls)
 	}
+	if query.countCalls != 0 {
+		t.Fatalf("locking existence check used Count %d times, want 0", query.countCalls)
+	}
 	if len(query.wheres) != 1 ||
 		!reflect.DeepEqual(query.wheres[0].query, map[string]any{
 			"post_id": contentRepositoryPostID,
@@ -364,7 +615,7 @@ func TestPutReactionIdempotentlyAcceptsAConcurrentWinner(t *testing.T) {
 func TestPublishedPostExistsForUpdateLocksParentRow(t *testing.T) {
 	t.Parallel()
 
-	query := &recordingContentQuery{exists: true}
+	query := &recordingContentQuery{getID: contentRepositoryPostID}
 	transaction := &recordingContentTx{query: query}
 
 	exists, err := publishedPostExistsForUpdate(transaction, contentRepositoryPostID)
@@ -377,6 +628,9 @@ func TestPublishedPostExistsForUpdateLocksParentRow(t *testing.T) {
 	}
 	if query.lockCalls != 1 {
 		t.Fatalf("parent post lock calls = %d, want 1", query.lockCalls)
+	}
+	if query.countCalls != 0 {
+		t.Fatalf("parent post lock used Count %d times, want 0", query.countCalls)
 	}
 	if len(query.wheres) != 2 {
 		t.Fatalf("post lock wheres = %#v, want id and status filters", query.wheres)
@@ -400,6 +654,69 @@ func TestEmptyContentCollectionsRemainJSONArrays(t *testing.T) {
 	}
 	if posts == nil || len(posts) != 0 {
 		t.Fatalf("posts = %#v, want non-nil empty slice", posts)
+	}
+}
+
+func TestLoadCommentCountsUsesOneFilteredBatchQuery(t *testing.T) {
+	t.Parallel()
+
+	query := &recordingContentQuery{
+		getRows: func(destination any) {
+			rows := destination.(*[]commentCountRow)
+			*rows = append(*rows,
+				commentCountRow{PostID: contentRepositoryPostID, Total: 3},
+				commentCountRow{PostID: contentRepositoryNewPost, Total: 1},
+			)
+		},
+	}
+	transaction := &recordingContentTx{query: query}
+
+	counts, err := loadCommentCounts(
+		transaction,
+		[]string{contentRepositoryPostID, contentRepositoryNewPost},
+	)
+
+	if err != nil {
+		t.Fatalf("loadCommentCounts error = %v", err)
+	}
+	if !reflect.DeepEqual(counts, map[string]int64{
+		contentRepositoryPostID:  3,
+		contentRepositoryNewPost: 1,
+	}) {
+		t.Fatalf("comment counts = %#v", counts)
+	}
+	if !reflect.DeepEqual(query.selects, []string{"post_id", "COUNT(*) AS total"}) {
+		t.Fatalf("selected columns = %#v", query.selects)
+	}
+	if !reflect.DeepEqual(query.whereIns, []recordedWhere{{
+		query: "post_id",
+		args:  []any{contentRepositoryPostID, contentRepositoryNewPost},
+	}}) {
+		t.Fatalf("post ID batch filter = %#v", query.whereIns)
+	}
+	if !reflect.DeepEqual(query.wheres, []recordedWhere{{
+		query: "status",
+		args:  []any{models.CommentStatusVisible},
+	}}) {
+		t.Fatalf("visibility filter = %#v", query.wheres)
+	}
+	if !reflect.DeepEqual(query.whereNulls, []string{"deleted_at"}) {
+		t.Fatalf("soft-delete filters = %#v", query.whereNulls)
+	}
+	if !reflect.DeepEqual(query.groupBy, []string{"post_id"}) {
+		t.Fatalf("grouping = %#v", query.groupBy)
+	}
+}
+
+func TestPostExposesCamelCaseCommentCount(t *testing.T) {
+	t.Parallel()
+
+	field, ok := reflect.TypeOf(Post{}).FieldByName("CommentCount")
+	if !ok {
+		t.Fatal("Post must expose CommentCount")
+	}
+	if field.Tag.Get("json") != "commentCount" {
+		t.Fatalf("CommentCount JSON tag = %q, want commentCount", field.Tag.Get("json"))
 	}
 }
 
