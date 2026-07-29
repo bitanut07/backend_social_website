@@ -1,6 +1,8 @@
 package config
 
 import (
+	"strings"
+
 	"github.com/goravel/framework/contracts/database/driver"
 	postgresfacades "github.com/goravel/postgres/facades"
 
@@ -9,6 +11,8 @@ import (
 
 func init() {
 	config := facades.Config()
+	isVercel := strings.TrimSpace(config.EnvString("VERCEL", "")) == "1"
+	poolDefaults := configuredDatabasePoolDefaults(isVercel)
 	config.Add("database", map[string]any{
 		// Default database connection name
 		"default": config.Env("DB_CONNECTION", "postgres"),
@@ -19,9 +23,11 @@ func init() {
 					"SUPABASE_POOLER_HOST",
 					config.Env("DB_HOST", "127.0.0.1"),
 				),
-				"port": config.Env(
-					"SUPABASE_SESSION_POOLER_PORT",
-					config.Env("DB_PORT", 5432),
+				"port": configuredDatabasePort(
+					isVercel,
+					config.EnvString("SUPABASE_TRANSACTION_POOLER_PORT", ""),
+					config.EnvString("SUPABASE_SESSION_POOLER_PORT", ""),
+					config.EnvString("DB_PORT", "5432"),
 				),
 				"database": config.Env(
 					"SUPABASE_DB_NAME",
@@ -57,7 +63,10 @@ func init() {
 			// then the new MaxIdleConns will be reduced to match the MaxOpenConns limit.
 			//
 			// If n <= 0, no idle connections are retained.
-			"max_idle_conns": 10,
+			"max_idle_conns": config.Env(
+				"DB_MAX_IDLE_CONNS",
+				poolDefaults.maxIdleConnections,
+			),
 			// Sets the maximum number of open connections to the database.
 			//
 			// If MaxIdleConns is greater than 0 and the new MaxOpenConns is less than
@@ -65,21 +74,30 @@ func init() {
 			// MaxOpenConns limit.
 			//
 			// If n <= 0, then there is no limit on the number of open connections.
-			"max_open_conns": 100,
+			"max_open_conns": config.Env(
+				"DB_MAX_OPEN_CONNS",
+				poolDefaults.maxOpenConnections,
+			),
 			// Sets the maximum amount of time a connection may be idle.
 			//
 			// Expired connections may be closed lazily before reuse.
 			//
 			// If d <= 0, connections are not closed due to a connection's idle time.
 			// Unit: Second
-			"conn_max_idletime": 3600,
+			"conn_max_idletime": config.Env(
+				"DB_CONN_MAX_IDLETIME",
+				poolDefaults.connectionMaxIdleTime,
+			),
 			// Sets the maximum amount of time a connection may be reused.
 			//
 			// Expired connections may be closed lazily before reuse.
 			//
 			// If d <= 0, connections are not closed due to a connection's age.
 			// Unit: Second
-			"conn_max_lifetime": 3600,
+			"conn_max_lifetime": config.Env(
+				"DB_CONN_MAX_LIFETIME",
+				poolDefaults.connectionMaxLifetime,
+			),
 		},
 		// Sets the threshold for slow queries in milliseconds, the slow query will be logged.
 		// Unit: Millisecond
@@ -95,4 +113,50 @@ func init() {
 			"table": "artly_goravel_migrations",
 		},
 	})
+}
+
+type databasePoolDefaults struct {
+	maxIdleConnections    int
+	maxOpenConnections    int
+	connectionMaxIdleTime int
+	connectionMaxLifetime int
+}
+
+func configuredDatabasePort(
+	isVercel bool,
+	transactionPoolerPort string,
+	sessionPoolerPort string,
+	databasePort string,
+) string {
+	if isVercel {
+		if port := strings.TrimSpace(transactionPoolerPort); port != "" {
+			return port
+		}
+	}
+	if port := strings.TrimSpace(sessionPoolerPort); port != "" {
+		return port
+	}
+	if port := strings.TrimSpace(databasePort); port != "" {
+		return port
+	}
+
+	return "5432"
+}
+
+func configuredDatabasePoolDefaults(isVercel bool) databasePoolDefaults {
+	if isVercel {
+		return databasePoolDefaults{
+			maxIdleConnections:    0,
+			maxOpenConnections:    5,
+			connectionMaxIdleTime: 60,
+			connectionMaxLifetime: 300,
+		}
+	}
+
+	return databasePoolDefaults{
+		maxIdleConnections:    10,
+		maxOpenConnections:    100,
+		connectionMaxIdleTime: 3600,
+		connectionMaxLifetime: 3600,
+	}
 }

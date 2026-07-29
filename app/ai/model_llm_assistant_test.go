@@ -33,6 +33,31 @@ type modelLLMChatClientFake struct {
 	history      []services.AssistantConversationMessage
 }
 
+func TestSSHTunnelOllamaClientReadsInlinePrivateKey(t *testing.T) {
+	t.Parallel()
+
+	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatalf("ed25519.GenerateKey() error = %v", err)
+	}
+	privateKeyBlock, err := ssh.MarshalPrivateKey(privateKey, "artly-test")
+	if err != nil {
+		t.Fatalf("ssh.MarshalPrivateKey() error = %v", err)
+	}
+	client := &sshTunnelOllamaClient{config: modelLLMConfig{
+		SSHPrivateKey: string(pem.EncodeToMemory(privateKeyBlock)),
+	}}
+
+	signer, err := client.readSigner()
+
+	if err != nil {
+		t.Fatalf("readSigner() error = %v", err)
+	}
+	if signer == nil {
+		t.Fatal("readSigner() returned a nil signer")
+	}
+}
+
 func (f *modelLLMChatClientFake) Chat(
 	_ context.Context,
 	systemPrompt string,

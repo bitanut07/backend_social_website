@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"time"
 
 	"github.com/goravel/framework/contracts/route"
@@ -11,6 +12,10 @@ import (
 
 func init() {
 	config := facades.Config()
+	port := configuredHTTPPort(
+		config.EnvString("PORT", ""),
+		config.EnvString("APP_PORT", "3000"),
+	)
 	assistantRequestTimeout := configuredHTTPDuration(
 		config.EnvString("HTTP_ASSISTANT_REQUEST_TIMEOUT", "110s"),
 		110*time.Second,
@@ -46,7 +51,7 @@ func init() {
 		// HTTP Host
 		"host": config.Env("APP_HOST", "127.0.0.1"),
 		// HTTP Port
-		"port": config.Env("APP_PORT", "3000"),
+		"port": port,
 		// Timeout is enforced by SecureRoute before Goravel materializes the body.
 		"request_timeout": 0,
 		// HTTPS Configuration
@@ -54,7 +59,7 @@ func init() {
 			// HTTPS Host
 			"host": config.Env("APP_HOST", "127.0.0.1"),
 			// HTTPS Port
-			"port": config.Env("APP_PORT", "3000"),
+			"port": port,
 			// SSL Certificate, you can put the certificate in /public folder
 			"ssl": map[string]any{
 				// ca.pem
@@ -97,6 +102,17 @@ func init() {
 			},
 		},
 	})
+}
+
+func configuredHTTPPort(runtimePort string, applicationPort string) string {
+	if port := strings.TrimSpace(runtimePort); port != "" {
+		return port
+	}
+	if port := strings.TrimSpace(applicationPort); port != "" {
+		return port
+	}
+
+	return "3000"
 }
 
 func configuredHTTPDuration(value string, fallback time.Duration) time.Duration {

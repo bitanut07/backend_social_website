@@ -112,8 +112,11 @@ func NewConfiguredModelLLMAssistant() *ModelLLMAssistant {
 	host := strings.TrimSpace(config.GetString("ai.model_llm.host"))
 	user := strings.TrimSpace(config.GetString("ai.model_llm.ssh_user"))
 	keyPath := strings.TrimSpace(config.GetString("ai.model_llm.ssh_key_path"))
+	privateKey := config.GetString("ai.model_llm.ssh_private_key")
 	hostKey := strings.TrimSpace(config.GetString("ai.model_llm.host_key_sha256"))
-	if host == "" || user == "" || keyPath == "" || hostKey == "" {
+	if host == "" || user == "" ||
+		(keyPath == "" && strings.TrimSpace(privateKey) == "") ||
+		hostKey == "" {
 		return nil
 	}
 
@@ -122,6 +125,7 @@ func NewConfiguredModelLLMAssistant() *ModelLLMAssistant {
 		SSHPort:       config.GetInt("ai.model_llm.ssh_port", 22),
 		SSHUser:       user,
 		SSHKeyPath:    keyPath,
+		SSHPrivateKey: privateKey,
 		HostKeySHA256: hostKey,
 		RemoteAddress: config.GetString("ai.model_llm.remote_address", "127.0.0.1:11434"),
 		Model:         config.GetString("ai.model_llm.model", "qwen3:1.7b"),
@@ -364,6 +368,7 @@ type modelLLMConfig struct {
 	SSHPort        int
 	SSHUser        string
 	SSHKeyPath     string
+	SSHPrivateKey  string
 	HostKeySHA256  string
 	RemoteAddress  string
 	Model          string
@@ -386,7 +391,7 @@ func newSSHTunnelOllamaClient(config modelLLMConfig) (*sshTunnelOllamaClient, er
 	if !validSSHHost(config.Host) ||
 		config.SSHPort < 1 || config.SSHPort > 65535 ||
 		config.SSHUser == "" ||
-		config.SSHKeyPath == "" ||
+		(config.SSHKeyPath == "" && strings.TrimSpace(config.SSHPrivateKey) == "") ||
 		!strings.HasPrefix(config.HostKeySHA256, "SHA256:") ||
 		!validLoopbackAddress(config.RemoteAddress) ||
 		!validModelText(config.Model, maximumModelNameLength) {
@@ -503,6 +508,10 @@ func (c *sshTunnelOllamaClient) ChatConversation(
 }
 
 func (c *sshTunnelOllamaClient) readSigner() (ssh.Signer, error) {
+	if strings.TrimSpace(c.config.SSHPrivateKey) != "" {
+		return parseModelLLMPrivateKey([]byte(c.config.SSHPrivateKey))
+	}
+
 	fileInfo, err := os.Stat(c.config.SSHKeyPath)
 	if err != nil {
 		return nil, fmt.Errorf("read MODEL_LLM SSH key metadata: %w", err)
@@ -515,6 +524,10 @@ func (c *sshTunnelOllamaClient) readSigner() (ssh.Signer, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read MODEL_LLM SSH key: %w", err)
 	}
+	return parseModelLLMPrivateKey(privateKey)
+}
+
+func parseModelLLMPrivateKey(privateKey []byte) (ssh.Signer, error) {
 	signer, err := ssh.ParsePrivateKey(privateKey)
 	if err != nil {
 		return nil, errors.New("parse MODEL_LLM SSH key")

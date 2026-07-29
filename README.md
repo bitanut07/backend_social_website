@@ -197,6 +197,10 @@ Sao chép `.env.example` thành `.env` và tối thiểu kiểm tra các biến 
 | `DB_TIMEZONE` | `UTC` | Múi giờ của kết nối database. |
 | `DB_SSLMODE` | `disable` | Tắt TLS cho local; production phải dùng chế độ phù hợp. |
 | `DB_SCHEMA` | `public` | Schema PostgreSQL mặc định của ứng dụng. |
+| `DB_MAX_IDLE_CONNS` | `10` local, `0` Vercel | Số connection rảnh giữ trong pool. |
+| `DB_MAX_OPEN_CONNS` | `100` local, `5` Vercel | Giới hạn connection mở cho mỗi process. |
+| `DB_CONN_MAX_IDLETIME` | `3600` local, `60` Vercel | Thời gian connection được phép rảnh, tính bằng giây. |
+| `DB_CONN_MAX_LIFETIME` | `3600` local, `300` Vercel | Tuổi thọ tối đa của connection, tính bằng giây. |
 | `AI_PROVIDER` | `local` | Dùng `local` mặc định; đặt `openai` để thử adapter tùy chọn. |
 | `OPENAI_API_KEY` | trống | Bỏ trống để chỉ dùng parser cục bộ. |
 | `OPENAI_BASE_URL` | trống | Base URL tương thích OpenAI nếu cần ghi đè. |
@@ -205,6 +209,7 @@ Sao chép `.env.example` thành `.env` và tối thiểu kiểm tra các biến 
 | `MODEL_LLM_SSH_PORT` | `22` | Cổng SSH của VM model. |
 | `MODEL_LLM_SSH_USER` | trống | Tài khoản SSH chỉ dùng để tạo tunnel. |
 | `MODEL_LLM_SSH_KEY_PATH` | trống | Đường dẫn private key PEM, quyền file phải là `0600` hoặc chặt hơn. |
+| `MODEL_LLM_SSH_PRIVATE_KEY` | trống | Private key PEM nhiều dòng lấy từ secret manager; ưu tiên hơn đường dẫn file và phù hợp serverless. |
 | `MODEL_LLM_HOST_KEY_SHA256` | trống | Fingerprint SHA256 dùng để pin SSH host key. |
 | `MODEL_LLM_REMOTE_ADDRESS` | `127.0.0.1:11434` | Ollama nội bộ trên VM; ứng dụng chỉ chấp nhận địa chỉ loopback. |
 | `MODEL_LLM_MODEL` | `qwen3:1.7b` | Model Ollama dùng cho hội thoại/action JSON. |
@@ -214,6 +219,14 @@ Sao chép `.env.example` thành `.env` và tối thiểu kiểm tra các biến 
 Không commit `.env`, API key hay mật khẩu thật. `APP_KEY` phải được tạo riêng
 cho từng môi trường. `JWT_SECRET` thuộc cấu hình nền của Goravel; cơ chế danh
 tính MVP hiện không dùng JWT.
+
+### Chạy trên Vercel
+
+Backend tự ưu tiên biến `PORT` do Vercel cấp cho HTTP server. Khi `VERCEL=1`,
+kết nối PostgreSQL tự dùng Supabase transaction pooler qua
+`SUPABASE_TRANSACTION_POOLER_PORT` và pool connection bảo thủ hơn. Private key
+SSH phải đặt trong secret `MODEL_LLM_SSH_PRIVATE_KEY`; không đưa file PEM vào
+repository hoặc deployment source.
 
 ## OpenAI là tùy chọn
 
