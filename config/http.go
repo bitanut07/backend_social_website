@@ -16,6 +16,9 @@ func init() {
 		config.EnvString("PORT", ""),
 		config.EnvString("APP_PORT", "3000"),
 	)
+	requestTimeout := configuredHTTPRequestTimeout(
+		config.EnvString("HTTP_REQUEST_TIMEOUT", ""),
+	)
 	assistantRequestTimeout := configuredHTTPDuration(
 		config.EnvString("HTTP_ASSISTANT_REQUEST_TIMEOUT", "110s"),
 		110*time.Second,
@@ -38,7 +41,7 @@ func init() {
 						config,
 						httpdriver.Options{
 							MaxBodyBytes:            64 * 1024,
-							RequestTimeout:          3 * time.Second,
+							RequestTimeout:          requestTimeout,
 							AssistantRequestTimeout: assistantRequestTimeout,
 							WriteTimeout:            writeTimeout,
 						},
@@ -113,6 +116,10 @@ func configuredHTTPPort(runtimePort string, applicationPort string) string {
 	}
 
 	return "3000"
+}
+
+func configuredHTTPRequestTimeout(value string) time.Duration {
+	return configuredHTTPDuration(value, 60*time.Second)
 }
 
 func configuredHTTPDuration(value string, fallback time.Duration) time.Duration {

@@ -1,6 +1,9 @@
 package config
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestConfiguredHTTPPortPrefersRuntimePort(t *testing.T) {
 	t.Parallel()
@@ -15,6 +18,22 @@ func TestConfiguredHTTPPortFallsBackToApplicationPort(t *testing.T) {
 
 	if got := configuredHTTPPort("", "3005"); got != "3005" {
 		t.Fatalf("configuredHTTPPort() = %q, want application port", got)
+	}
+}
+
+func TestConfiguredHTTPRequestTimeoutDefaultsToSixtySeconds(t *testing.T) {
+	t.Parallel()
+
+	if got := configuredHTTPRequestTimeout(""); got != 60*time.Second {
+		t.Fatalf("configuredHTTPRequestTimeout() = %s, want 60s", got)
+	}
+}
+
+func TestConfiguredHTTPRequestTimeoutAcceptsOverride(t *testing.T) {
+	t.Parallel()
+
+	if got := configuredHTTPRequestTimeout("25s"); got != 25*time.Second {
+		t.Fatalf("configuredHTTPRequestTimeout() = %s, want 25s", got)
 	}
 }
 

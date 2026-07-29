@@ -186,7 +186,8 @@ Sao chép `.env.example` thành `.env` và tối thiểu kiểm tra các biến 
 | `APP_HOST` | `127.0.0.1` | Địa chỉ backend lắng nghe. |
 | `APP_PORT` | `3000` | Cổng HTTP. |
 | `CORS_ALLOWED_ORIGIN` | `http://localhost:5173` | Origin frontend được phép gọi API. |
-| `HTTP_ASSISTANT_REQUEST_TIMEOUT` | `110s` | Timeout riêng cho endpoint trợ lý, đủ cho một lần retry khi model cold-start; các API thường vẫn dùng timeout ngắn. |
+| `HTTP_REQUEST_TIMEOUT` | `60s` | Timeout cho API thông thường, gồm thời gian mở kết nối pooler khi function vừa khởi động. |
+| `HTTP_ASSISTANT_REQUEST_TIMEOUT` | `110s` | Timeout riêng cho endpoint trợ lý, đủ cho một lần retry khi model cold-start. |
 | `HTTP_WRITE_TIMEOUT` | `115s` | Giới hạn ghi response của HTTP server, phải lớn hơn timeout trợ lý. |
 | `DB_CONNECTION` | `postgres` | Luôn dùng `postgres` cho dự án này. |
 | `DB_HOST` | `127.0.0.1` | Máy chủ PostgreSQL. |
