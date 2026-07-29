@@ -205,7 +205,7 @@ func appServiceHelpAnswer(service AssistantAppService) string {
 	case AssistantAppServiceFeed:
 		return "Mở Bảng tin để xem các tác phẩm mới nhất. Bạn có thể dùng bộ lọc chủ đề ở đầu danh sách để thu hẹp các bài đang hiển thị."
 	case AssistantAppServicePosts:
-		return "Trong Bảng tin, chọn Đăng bài, nhập tiêu đề, mô tả và URL ảnh bắt đầu bằng http:// hoặc https://. Bản REST hiện chưa tải file ảnh trực tiếp, và bạn chỉ có thể xóa bài do mình đăng."
+		return "Trong Bảng tin, chọn Đăng bài, nhập tiêu đề, mô tả và URL ảnh bắt đầu bằng http:// hoặc https://. Bản REST hiện chưa tải file ảnh trực tiếp. Bạn có thể xóa bài do mình đăng; super admin có thể xóa mọi bài viết."
 	case AssistantAppServiceReactions:
 		return "Chọn nút hình tim dưới một bài viết để thả reaction; chọn lại nút đó để gỡ reaction. Số lượt reaction được cập nhật ngay trên bài."
 	case AssistantAppServiceMessages:

@@ -101,6 +101,7 @@ paths:
                       username: thu.ha.cafe
                       displayName: Lê Thu Hà
                       role: STUDENT
+                      isSuperAdmin: false
                       avatarUrl: null
         "400":
           $ref: "#/components/responses/BadRequest"
@@ -140,16 +141,19 @@ paths:
                         username: minh.an
                         displayName: Trần Minh An
                         role: STUDENT
+                        isSuperAdmin: false
                         avatarUrl: https://i.pravatar.cc/256?img=12
                       - id: "00000000-0000-4000-8000-000000000002"
                         username: co.lan
                         displayName: Cô Nguyễn Hoài Lan
                         role: TEACHER
+                        isSuperAdmin: false
                         avatarUrl: https://i.pravatar.cc/256?img=47
                       - id: "00000000-0000-4000-8000-000000000003"
                         username: phuong.thao
                         displayName: Nguyễn Phương Thảo
                         role: STUDENT
+                        isSuperAdmin: false
                         avatarUrl: https://i.pravatar.cc/256?img=32
                     pagination:
                       page: 1
@@ -274,6 +278,7 @@ paths:
                           username: minh.an
                           displayName: Trần Minh An
                           role: STUDENT
+                          isSuperAdmin: false
                           avatarUrl: https://i.pravatar.cc/256?img=12
                         topics:
                           - id: "10000000-0000-4000-8000-000000000001"
@@ -302,6 +307,7 @@ paths:
                           username: minh.an
                           displayName: Trần Minh An
                           role: STUDENT
+                          isSuperAdmin: false
                           avatarUrl: https://i.pravatar.cc/256?img=12
                         topics:
                           - id: "10000000-0000-4000-8000-000000000001"
@@ -389,6 +395,7 @@ paths:
                         username: minh.an
                         displayName: Trần Minh An
                         role: STUDENT
+                        isSuperAdmin: false
                         avatarUrl: https://i.pravatar.cc/256?img=12
                       topics:
                         - id: "10000000-0000-4000-8000-000000000001"
@@ -463,6 +470,7 @@ paths:
                           username: co.lan
                           displayName: Cô Nguyễn Hoài Lan
                           role: TEACHER
+                          isSuperAdmin: false
                           avatarUrl: https://i.pravatar.cc/256?img=47
                         createdAt: "2026-07-25T09:15:00+07:00"
                     pagination:
@@ -528,6 +536,7 @@ paths:
                         username: co.lan
                         displayName: Cô Nguyễn Hoài Lan
                         role: TEACHER
+                        isSuperAdmin: false
                         avatarUrl: https://i.pravatar.cc/256?img=47
                       createdAt: "2026-07-25T09:15:00+07:00"
         "400":
@@ -691,12 +700,14 @@ paths:
                           username: co.lan
                           displayName: Cô Nguyễn Hoài Lan
                           role: TEACHER
+                          isSuperAdmin: false
                           avatarUrl: https://i.pravatar.cc/256?img=47
                         receiver:
                           id: "00000000-0000-4000-8000-000000000001"
                           username: minh.an
                           displayName: Trần Minh An
                           role: STUDENT
+                          isSuperAdmin: false
                           avatarUrl: https://i.pravatar.cc/256?img=12
                         body: Em thử tăng độ tương phản ở vùng tiền cảnh nhé, bố cục đang rất tốt.
                         createdAt: "2026-07-24T09:10:00+07:00"
@@ -706,12 +717,14 @@ paths:
                           username: minh.an
                           displayName: Trần Minh An
                           role: STUDENT
+                          isSuperAdmin: false
                           avatarUrl: https://i.pravatar.cc/256?img=12
                         receiver:
                           id: "00000000-0000-4000-8000-000000000002"
                           username: co.lan
                           displayName: Cô Nguyễn Hoài Lan
                           role: TEACHER
+                          isSuperAdmin: false
                           avatarUrl: https://i.pravatar.cc/256?img=47
                         body: Cô xem giúp em phần phối màu của bài Mầm xanh tương lai với ạ.
                         createdAt: "2026-07-24T09:10:00+07:00"
@@ -770,12 +783,14 @@ paths:
                         username: minh.an
                         displayName: Trần Minh An
                         role: STUDENT
+                        isSuperAdmin: false
                         avatarUrl: https://i.pravatar.cc/256?img=12
                       receiver:
                         id: "00000000-0000-4000-8000-000000000002"
                         username: co.lan
                         displayName: Cô Nguyễn Hoài Lan
                         role: TEACHER
+                        isSuperAdmin: false
                         avatarUrl: https://i.pravatar.cc/256?img=47
                       body: Cô xem giúp em phần phối màu của bài Mầm xanh tương lai với ạ.
                       createdAt: "2026-07-24T09:12:00+07:00"
@@ -1196,6 +1211,7 @@ components:
         - username
         - displayName
         - role
+        - isSuperAdmin
       properties:
         id:
           $ref: "#/components/schemas/ResourceId"
@@ -1216,6 +1232,10 @@ components:
             - Trần Minh An
         role:
           $ref: "#/components/schemas/UserRole"
+        isSuperAdmin:
+          type: boolean
+          description: Cho phép tài khoản quản trị xóa bài viết của người khác.
+          default: false
         avatarUrl:
           type:
             - string

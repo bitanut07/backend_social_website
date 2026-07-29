@@ -44,7 +44,7 @@ WHERE conversation_id = $1
 ORDER BY created_at DESC, id DESC
 LIMIT $4 OFFSET $5`
 
-const messageUsersSQL = `SELECT id, username, display_name, role, avatar_url
+const messageUsersSQL = `SELECT id, username, display_name, role, avatar_url, is_super_admin
 FROM users
 WHERE id IN ($1, $2)`
 
@@ -109,11 +109,12 @@ type directMessageRow struct {
 }
 
 type messageUserRow struct {
-	ID          string  `db:"id"`
-	Username    string  `db:"username"`
-	DisplayName string  `db:"display_name"`
-	Role        string  `db:"role"`
-	AvatarURL   *string `db:"avatar_url"`
+	ID           string  `db:"id"`
+	Username     string  `db:"username"`
+	DisplayName  string  `db:"display_name"`
+	Role         string  `db:"role"`
+	AvatarURL    *string `db:"avatar_url"`
+	IsSuperAdmin bool    `db:"is_super_admin"`
 }
 
 // MessageRepository persists the REST direct-message API on top of the
@@ -376,11 +377,12 @@ func loadMessageUsers(
 	users := make(map[string]models.User, len(rows))
 	for _, row := range rows {
 		users[row.ID] = models.User{
-			BaseModel:   models.BaseModel{ID: row.ID},
-			Username:    row.Username,
-			DisplayName: row.DisplayName,
-			Role:        row.Role,
-			AvatarURL:   row.AvatarURL,
+			BaseModel:    models.BaseModel{ID: row.ID},
+			Username:     row.Username,
+			DisplayName:  row.DisplayName,
+			Role:         row.Role,
+			AvatarURL:    row.AvatarURL,
+			IsSuperAdmin: row.IsSuperAdmin,
 		}
 	}
 	if _, ok := users[firstUserID]; !ok {

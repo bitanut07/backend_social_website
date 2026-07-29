@@ -372,7 +372,7 @@ Hợp đồng đầy đủ, schema request/response và ví dụ nằm tại
 | `GET` | `/api/v1/topics` | Không | Lấy chủ đề và alias. |
 | `GET` | `/api/v1/posts` | Có | Lấy bảng tin, phân trang và lọc `topicId`. |
 | `POST` | `/api/v1/posts` | Có | Đăng bài bằng URL ảnh. |
-| `DELETE` | `/api/v1/posts/{id}` | Có | Tác giả soft-delete bài viết của chính mình. |
+| `DELETE` | `/api/v1/posts/{id}` | Có | Tác giả soft-delete bài của mình; super admin có thể xóa mọi bài. |
 | `GET` | `/api/v1/posts/{id}/comments` | Có | Lấy bình luận mới nhất trước, có phân trang. |
 | `POST` | `/api/v1/posts/{id}/comments` | Có | Tạo bình luận cho bài viết. |
 | `DELETE` | `/api/v1/posts/{id}/comments/{commentId}` | Có | Soft-delete bình luận của chính mình. |

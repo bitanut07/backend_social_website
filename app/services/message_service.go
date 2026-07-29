@@ -25,11 +25,12 @@ type MessageRepository interface {
 }
 
 type MessageUserDTO struct {
-	ID          string  `json:"id"`
-	Username    string  `json:"username"`
-	DisplayName string  `json:"displayName"`
-	Role        string  `json:"role"`
-	AvatarURL   *string `json:"avatarUrl"`
+	ID           string  `json:"id"`
+	Username     string  `json:"username"`
+	DisplayName  string  `json:"displayName"`
+	Role         string  `json:"role"`
+	AvatarURL    *string `json:"avatarUrl"`
+	IsSuperAdmin bool    `json:"isSuperAdmin"`
 }
 
 type MessageDTO struct {
@@ -157,10 +158,11 @@ func messageDTOFromModel(message models.Message) MessageDTO {
 
 func messageUserDTOFromModel(user models.User) MessageUserDTO {
 	return MessageUserDTO{
-		ID:          user.ID,
-		Username:    user.Username,
-		DisplayName: user.DisplayName,
-		Role:        user.Role,
-		AvatarURL:   user.AvatarURL,
+		ID:           user.ID,
+		Username:     user.Username,
+		DisplayName:  user.DisplayName,
+		Role:         user.Role,
+		AvatarURL:    user.AvatarURL,
+		IsSuperAdmin: user.IsSuperAdmin,
 	}
 }

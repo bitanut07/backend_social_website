@@ -801,7 +801,7 @@ func contentServiceFailure(err error) *contentRequestFailure {
 		return &contentRequestFailure{
 			status:  http.StatusForbidden,
 			code:    "FORBIDDEN",
-			message: "Bạn chỉ có thể xóa bài viết của chính mình",
+			message: "Bạn không có quyền xóa bài viết này",
 			details: http.Json{},
 		}
 	}

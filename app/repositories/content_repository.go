@@ -30,11 +30,12 @@ RETURNING id`
 const defaultLikeReactionTypeID = "10000000-0000-4000-8000-000000000001"
 
 type User struct {
-	ID          string  `json:"id"`
-	Username    string  `json:"username"`
-	DisplayName string  `json:"displayName"`
-	Role        string  `json:"role"`
-	AvatarURL   *string `json:"avatarUrl"`
+	ID           string  `json:"id"`
+	Username     string  `json:"username"`
+	DisplayName  string  `json:"displayName"`
+	Role         string  `json:"role"`
+	AvatarURL    *string `json:"avatarUrl"`
+	IsSuperAdmin bool    `json:"isSuperAdmin"`
 }
 
 type Topic struct {
@@ -125,7 +126,7 @@ func (r *GoravelContentRepository) ListUsers(
 	total = count
 	err = database.
 		Table("users").
-		Select("id", "username", "display_name", "role", "avatar_url").
+		Select("id", "username", "display_name", "role", "avatar_url", "is_super_admin").
 		OrderBy("id").
 		Offset(pageOffset(page, pageSize)).
 		Limit(uint64(pageSize)).
@@ -146,7 +147,7 @@ func (r *GoravelContentRepository) UserByUsername(ctx context.Context, username 
 	rows := make([]userRow, 0, 1)
 	err := r.database.WithContext(ctx).
 		Table("users").
-		Select("id", "username", "display_name", "role", "avatar_url").
+		Select("id", "username", "display_name", "role", "avatar_url", "is_super_admin").
 		Where("username", username).
 		Limit(1).
 		Get(&rows)
@@ -185,7 +186,7 @@ func (r *GoravelContentRepository) UpdateProfile(
 
 		rows := make([]userRow, 0, 1)
 		err = tx.Table("users").
-			Select("id", "username", "display_name", "role", "avatar_url").
+			Select("id", "username", "display_name", "role", "avatar_url", "is_super_admin").
 			Where("id", userID).
 			Limit(1).
 			Get(&rows)
@@ -407,18 +408,37 @@ func (r *GoravelContentRepository) DeletePost(
 		if len(owners) == 0 {
 			return ErrNotFound
 		}
+
+		canDeleteAnyPost := false
 		if owners[0].UserID != userID {
-			return ErrForbidden
+			permissions := make([]userPermissionRow, 0, 1)
+			err = tx.Table("users").
+				Select("is_super_admin").
+				Where("id", userID).
+				Where("is_super_admin", true).
+				LockForUpdate().
+				Limit(1).
+				Get(&permissions)
+			if err != nil {
+				return err
+			}
+			if len(permissions) == 0 || !permissions[0].IsSuperAdmin {
+				return ErrForbidden
+			}
+			canDeleteAnyPost = true
 		}
 
-		result, err := tx.Table("posts").
+		updateQuery := tx.Table("posts").
 			Where("id", postID).
-			Where("user_id", userID).
-			WhereNull("deleted_at").
-			Update(map[string]any{
-				"status":     models.PostStatusRemoved,
-				"deleted_at": time.Now().UTC(),
-			})
+			WhereNull("deleted_at")
+		if !canDeleteAnyPost {
+			updateQuery = updateQuery.Where("user_id", userID)
+		}
+
+		result, err := updateQuery.Update(map[string]any{
+			"status":     models.PostStatusRemoved,
+			"deleted_at": time.Now().UTC(),
+		})
 		if err != nil {
 			return err
 		}
@@ -531,11 +551,16 @@ func (r *GoravelContentRepository) DeleteReaction(
 }
 
 type userRow struct {
-	ID          string  `db:"id"`
-	Username    string  `db:"username"`
-	DisplayName string  `db:"display_name"`
-	Role        string  `db:"role"`
-	AvatarURL   *string `db:"avatar_url"`
+	ID           string  `db:"id"`
+	Username     string  `db:"username"`
+	DisplayName  string  `db:"display_name"`
+	Role         string  `db:"role"`
+	AvatarURL    *string `db:"avatar_url"`
+	IsSuperAdmin bool    `db:"is_super_admin"`
+}
+
+type userPermissionRow struct {
+	IsSuperAdmin bool `db:"is_super_admin"`
 }
 
 type insertedPostIDRow struct {
@@ -548,11 +573,12 @@ type lockedResourceRow struct {
 
 func (r userRow) toUser() User {
 	return User{
-		ID:          r.ID,
-		Username:    r.Username,
-		DisplayName: r.DisplayName,
-		Role:        r.Role,
-		AvatarURL:   r.AvatarURL,
+		ID:           r.ID,
+		Username:     r.Username,
+		DisplayName:  r.DisplayName,
+		Role:         r.Role,
+		AvatarURL:    r.AvatarURL,
+		IsSuperAdmin: r.IsSuperAdmin,
 	}
 }
 

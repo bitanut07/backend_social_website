@@ -405,7 +405,7 @@ func TestContentServiceFailureMapsPostOwnershipDenialToForbidden(t *testing.T) {
 	if failure.code != "FORBIDDEN" {
 		t.Fatalf("forbidden code = %q, want FORBIDDEN", failure.code)
 	}
-	if failure.message != "Bạn chỉ có thể xóa bài viết của chính mình" {
+	if failure.message != "Bạn không có quyền xóa bài viết này" {
 		t.Fatalf("forbidden message = %q", failure.message)
 	}
 }

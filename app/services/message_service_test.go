@@ -192,11 +192,12 @@ func TestMessageServiceListMapsOnlyPublicFieldsAndRFC3339Time(t *testing.T) {
 				Body:       "Em thử tăng độ tương phản ở vùng tiền cảnh nhé.",
 				IsRead:     true,
 				Sender: models.User{
-					BaseModel:   models.BaseModel{ID: messageServiceTestUserTwoID},
-					Username:    "co.mai",
-					DisplayName: "Cô Mai Anh",
-					Role:        models.UserRoleTeacher,
-					AvatarURL:   &avatarURL,
+					BaseModel:    models.BaseModel{ID: messageServiceTestUserTwoID},
+					Username:     "co.mai",
+					DisplayName:  "Cô Mai Anh",
+					Role:         models.UserRoleTeacher,
+					AvatarURL:    &avatarURL,
+					IsSuperAdmin: true,
 				},
 				Receiver: models.User{
 					BaseModel:   models.BaseModel{ID: messageServiceTestUserOneID},
@@ -231,6 +232,9 @@ func TestMessageServiceListMapsOnlyPublicFieldsAndRFC3339Time(t *testing.T) {
 	}
 	if result.Messages[0].CreatedAt != "2026-07-24T09:10:00+07:00" {
 		t.Fatalf("got createdAt %q", result.Messages[0].CreatedAt)
+	}
+	if !result.Messages[0].Sender.IsSuperAdmin {
+		t.Fatal("sender super-admin flag was not mapped")
 	}
 
 	encoded, err := json.Marshal(result.Messages[0])

@@ -386,6 +386,76 @@ func TestContentRepositoryDeletePostOnlySoftDeletesItsAuthorPost(t *testing.T) {
 		}
 	})
 
+	t.Run("super admin", func(t *testing.T) {
+		t.Parallel()
+
+		ownerQuery := &recordingContentQuery{
+			getUserID: contentRepositoryUserID,
+		}
+		permissionQuery := &recordingContentQuery{
+			getRows: func(destination any) {
+				slice := reflect.ValueOf(destination).Elem()
+				row := reflect.New(slice.Type().Elem()).Elem()
+				field := row.FieldByName("IsSuperAdmin")
+				if !field.IsValid() {
+					t.Fatal("super-admin permission row must expose IsSuperAdmin")
+				}
+				field.SetBool(true)
+				slice.Set(reflect.Append(slice, row))
+			},
+		}
+		updateQuery := &recordingContentQuery{}
+		transaction := &recordingContentTx{
+			queries: []contractsdb.Query{
+				ownerQuery,
+				permissionQuery,
+				updateQuery,
+			},
+		}
+		repository := NewContentRepository(
+			&recordingContentDB{transaction: transaction},
+		)
+
+		err := repository.DeletePost(
+			context.Background(),
+			"00000000-0000-4000-8000-000000000099",
+			contentRepositoryPostID,
+		)
+
+		if err != nil {
+			t.Fatalf("DeletePost error = %v, want super admin delete allowed", err)
+		}
+		if permissionQuery.lockCalls != 1 {
+			t.Fatalf(
+				"super-admin lookup lock calls = %d, want 1",
+				permissionQuery.lockCalls,
+			)
+		}
+		if !containsString(permissionQuery.selects, "is_super_admin") {
+			t.Fatalf(
+				"super-admin lookup selects = %#v, want is_super_admin",
+				permissionQuery.selects,
+			)
+		}
+		if len(updateQuery.updates) != 1 {
+			t.Fatalf(
+				"super admin post updates = %#v, want one soft-delete",
+				updateQuery.updates,
+			)
+		}
+		if len(updateQuery.wheres) != 1 ||
+			updateQuery.wheres[0].query != "id" ||
+			!reflect.DeepEqual(
+				updateQuery.wheres[0].args,
+				[]any{contentRepositoryPostID},
+			) {
+			t.Fatalf(
+				"super-admin update filters = %#v, want only post ID",
+				updateQuery.wheres,
+			)
+		}
+	})
+
 	t.Run("missing post", func(t *testing.T) {
 		t.Parallel()
 
